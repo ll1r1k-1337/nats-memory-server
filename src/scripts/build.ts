@@ -4,7 +4,7 @@ import { getProjectConfig, getProjectPath } from '../utils';
 
 process.nextTick(async function () {
   const projectPath = getProjectPath();
-  const config = getProjectConfig(projectPath);
+  const config = await getProjectConfig(projectPath);
 
   const { buildFromSource } = config;
 

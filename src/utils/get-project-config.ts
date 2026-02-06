@@ -1,5 +1,5 @@
 import path, { isAbsolute } from 'path';
-import fs from 'fs';
+import fs, { promises as fsPromises } from 'fs';
 
 const configKey = `natsMemoryServer` as const;
 const configFileBaseName = `nats-memory-server` as const;
@@ -7,10 +7,12 @@ const allowedExtensions = [`.ts`, `.js`, `.json`] as const;
 
 const readFileMap = {
   '.ts': (filePath: string) => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/quotes
-    const tsNode = require('ts-node');
-
-    if (tsNode == null) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let tsNode: any;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/quotes
+      tsNode = require('ts-node');
+    } catch {
       throw new Error(`ts-node is not installed`);
     }
 
@@ -28,6 +30,37 @@ export function readFile(filePath: string): any {
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-expect-error
   return readFileMap[ext](filePath);
+}
+
+const readFileAsyncMap = {
+  '.ts': async (filePath: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let tsNode: any;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/quotes
+      tsNode = require('ts-node');
+    } catch {
+      throw new Error(`ts-node is not installed`);
+    }
+
+    tsNode.register();
+    return require(filePath);
+  },
+  '.js': async (filePath: string) => require(filePath),
+  '.json': async (filePath: string) =>
+    JSON.parse(await fsPromises.readFile(filePath, `utf8`)),
+} satisfies Record<
+  (typeof allowedExtensions)[number],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (path: string) => Promise<any>
+>;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readFileAsync(filePath: string): Promise<any> {
+  const ext = path.extname(filePath).toLowerCase();
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-expect-error
+  return readFileAsyncMap[ext](filePath);
 }
 
 export interface NatsMemoryServerConfig {
@@ -68,10 +101,27 @@ function prepareConfig(
   };
 }
 
-export function getProjectConfig(projectPath: string): NatsMemoryServerConfig {
-  const projectConfigPath = allowedExtensions
-    .map((ext) => path.resolve(projectPath, `./${configFileBaseName}${ext}`))
-    .find((filePath) => fs.existsSync(filePath));
+export async function getProjectConfig(
+  projectPath: string,
+): Promise<NatsMemoryServerConfig> {
+  const possibleConfigPaths = allowedExtensions.map((ext) =>
+    path.resolve(projectPath, `./${configFileBaseName}${ext}`),
+  );
+
+  const existenceChecks = await Promise.all(
+    possibleConfigPaths.map(async (p) => {
+      try {
+        await fsPromises.access(p);
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  );
+
+  const foundIndex = existenceChecks.findIndex((exists) => exists);
+  const projectConfigPath =
+    foundIndex >= 0 ? possibleConfigPaths[foundIndex] : undefined;
 
   const packageJsonPath = path.resolve(projectPath, `./package.json`);
 
@@ -80,15 +130,25 @@ export function getProjectConfig(projectPath: string): NatsMemoryServerConfig {
   if (projectConfigPath !== undefined) {
     config = {
       ...defaultConfig,
-      ...readFile(projectConfigPath),
-    };
-  } else if (fs.existsSync(packageJsonPath)) {
-    config = {
-      ...defaultConfig,
-      ...readFile(packageJsonPath)[configKey],
+      ...(await readFileAsync(projectConfigPath)),
     };
   } else {
-    config = defaultConfig;
+    let packageJsonExists = false;
+    try {
+      await fsPromises.access(packageJsonPath);
+      packageJsonExists = true;
+    } catch {
+      packageJsonExists = false;
+    }
+
+    if (packageJsonExists) {
+      config = {
+        ...defaultConfig,
+        ...(await readFileAsync(packageJsonPath))[configKey],
+      };
+    } else {
+      config = defaultConfig;
+    }
   }
 
   return prepareConfig(config, projectPath);

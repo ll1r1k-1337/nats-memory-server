@@ -12,7 +12,7 @@ import {
 
 process.nextTick(async function () {
   const projectPath = getProjectPath();
-  const config = getProjectConfig(projectPath);
+  const config = await getProjectConfig(projectPath);
 
   let { downloadDir, download } = config;
 
