@@ -1,6 +1,5 @@
 import child_process from 'child_process';
 import {
-  getFreePort,
   getProjectConfig,
   getProjectPath,
   type NatsMemoryServerConfig,
@@ -58,7 +57,12 @@ export class NatsServer {
     const projectConfig = await NatsServer.projectConfigPromise;
 
     const config = { ...projectConfig, ...this.options };
-    const { args, ip, port = await getFreePort(), binPath } = config;
+    const { args, ip, binPath } = config;
+    let { port } = config;
+
+    if (port === undefined) {
+      port = -1;
+    }
 
     return await new Promise((resolve, reject) => {
       this.process = child_process.spawn(
@@ -84,6 +88,13 @@ export class NatsServer {
 
         if (verbose && dataStr != null) {
           logger.log(dataStr);
+        }
+
+        const portMatch = dataStr?.match(
+          /Listening for client connections on .+:(\d+)/,
+        );
+        if (portMatch != null) {
+          this.port = parseInt(portMatch[1], 10);
         }
 
         if (dataStr?.includes(`Server is ready`) === true) {
