@@ -1,6 +1,5 @@
 import child_process from 'child_process';
 import {
-  getFreePort,
   getProjectConfig,
   getProjectPath,
   type NatsMemoryServerConfig,
@@ -58,7 +57,15 @@ export class NatsServer {
     const projectConfig = await NatsServer.projectConfigPromise;
 
     const config = { ...projectConfig, ...this.options };
-    const { args, ip, port = await getFreePort(), binPath } = config;
+    const { args, ip, binPath } = config;
+    let { port } = config;
+
+    // Optimization: Instead of using getFreePort() which has a race condition (port can be taken
+    // between check and use) and is slower (requires creating a dummy server), we let NATS
+    // pick a random port by passing -1. We then parse the port from the logs.
+    if (port === undefined) {
+      port = -1;
+    }
 
     return await new Promise((resolve, reject) => {
       this.process = child_process.spawn(
@@ -84,6 +91,17 @@ export class NatsServer {
 
         if (verbose && dataStr != null) {
           logger.log(dataStr);
+        }
+
+        // Parse the port from the NATS server log.
+        // NATS logs "Listening for client connections on <ip>:<port>".
+        // This allows us to know which random port was assigned.
+        const portMatch = dataStr?.match(
+          /Listening for client connections on [0-9.]+:(\d+)/,
+        );
+
+        if (portMatch != null) {
+          this.port = parseInt(portMatch[1], 10);
         }
 
         if (dataStr?.includes(`Server is ready`) === true) {
