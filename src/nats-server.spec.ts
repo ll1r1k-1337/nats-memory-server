@@ -68,3 +68,11 @@ describe(NatsServer.name, () => {
     expect(logger.log).toHaveBeenCalled();
   });
 });
+
+it(`Should assign random port when port is 0`, async () => {
+  const server = NatsServerBuilder.create().setPort(0).build();
+  await server.start();
+  expect(server.getPort()).toBeGreaterThan(0);
+  expect(server.getPort()).not.toBe(0);
+  await server.stop();
+});
