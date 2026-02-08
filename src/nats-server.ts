@@ -1,6 +1,5 @@
 import child_process from 'child_process';
 import {
-  getFreePort,
   getProjectConfig,
   getProjectPath,
   type NatsMemoryServerConfig,
@@ -58,7 +57,11 @@ export class NatsServer {
     const projectConfig = await NatsServer.projectConfigPromise;
 
     const config = { ...projectConfig, ...this.options };
-    const { args, ip, port = await getFreePort(), binPath } = config;
+    let { args, ip, port, binPath } = config;
+
+    if (port === undefined || port === 0) {
+      port = -1;
+    }
 
     return await new Promise((resolve, reject) => {
       this.process = child_process.spawn(
@@ -69,6 +72,8 @@ export class NatsServer {
 
       this.host = ip;
       this.port = port;
+
+      let isServerReady = false;
 
       this.process.once(`error`, (err) => {
         if (verbose) {
@@ -82,14 +87,29 @@ export class NatsServer {
         // eslint-disable-next-line @typescript-eslint/no-base-to-string
         const dataStr = data?.toString();
 
-        if (verbose && dataStr != null) {
-          logger.log(dataStr);
+        if (dataStr != null) {
+          if (verbose) {
+            logger.log(dataStr);
+          }
+
+          if (this.port === -1) {
+            const match = dataStr.match(
+              /Listening for client connections on .+:(\d+)/,
+            );
+            if (match != null) {
+              this.port = parseInt(match[1]);
+            }
+          }
         }
 
         if (dataStr?.includes(`Server is ready`) === true) {
+          isServerReady = true;
           if (verbose) {
             logger.log(`NATS server is ready!`);
           }
+        }
+
+        if (isServerReady && this.port !== -1) {
           resolve(this);
           this.process?.unref();
         }
