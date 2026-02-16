@@ -67,4 +67,15 @@ describe(NatsServer.name, () => {
 
     expect(logger.log).toHaveBeenCalled();
   });
+
+  it(`Should start and stop NATS server with verbose false`, async () => {
+    const server = await NatsServerBuilder.create()
+      .setVerbose(false)
+      .build()
+      .start();
+
+    const natsClient = await connect({ servers: server.getUrl() });
+    await natsClient.close();
+    await server.stop();
+  });
 });
