@@ -4,14 +4,14 @@ import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 
-jest.mock('make-fetch-happen');
-jest.mock('fs');
-jest.mock('stream/promises');
+jest.mock(`make-fetch-happen`);
+jest.mock(`fs`);
+jest.mock(`stream/promises`);
 
 // We want to test path resolution, so we DON'T mock path completely
 // but we might want to spy on it if needed. For now, using actual path is better.
 
-describe('downloadFile Security', () => {
+describe(`downloadFile Security`, () => {
   const mockFetch = fetch as unknown as jest.Mock;
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
@@ -20,21 +20,23 @@ describe('downloadFile Security', () => {
     jest.clearAllMocks();
   });
 
-  it('should prevent path traversal in filename', async () => {
-    const url = 'http://example.com/malicious.zip';
-    const dir = './downloads';
-    const maliciousFilename = '../../etc/passwd';
+  it(`should prevent path traversal in filename`, async () => {
+    const url = `http://example.com/malicious.zip`;
+    const dir = `./downloads`;
+    const maliciousFilename = `../../etc/passwd`;
 
     const mockResponse = {
       ok: true,
       headers: {
-        get: jest.fn().mockReturnValue(`attachment; filename=${maliciousFilename}`),
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename=${maliciousFilename}`),
       },
-      body: 'mockBody',
+      body: `mockBody`,
     };
 
     mockFetch.mockResolvedValue(mockResponse);
-    mockCreateWriteStream.mockReturnValue('mockWriteStream');
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
     mockPipeline.mockResolvedValue(undefined);
 
     await downloadFile(url, dir);
