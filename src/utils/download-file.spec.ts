@@ -18,7 +18,7 @@ describe(`downloadFile`, () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockBasename.mockReturnValue('file.zip');
+    mockBasename.mockReturnValue(`file.zip`);
   });
 
   it(`should download a file successfully`, async () => {
