@@ -44,7 +44,13 @@ export async function downloadFile(
     throw new Error(`No filename in content-disposition`);
   }
 
-  const destination = path.resolve(dir, fileName);
+  const safeFileName = path.basename(fileName);
+  const destination = path.resolve(dir, safeFileName);
+
+  // Prevent path traversal
+  if (!destination.startsWith(path.resolve(dir))) {
+    throw new Error(`Invalid filename: ${fileName}`);
+  }
   const fileStream = createWriteStream(destination);
 
   await pipeline(response.body, fileStream);
