@@ -78,20 +78,46 @@ export class NatsServer {
         reject(err);
       });
 
-      this.process.stderr.on(`data`, (data: unknown) => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const dataStr = data?.toString();
+      let isReady = false;
+      const serverReadyBuffer = Buffer.from(`Server is ready`);
 
-        if (verbose && dataStr != null) {
-          logger.log(dataStr);
+      this.process.stderr.on(`data`, (data: unknown) => {
+        // Optimization: return early if server is ready and not verbose to avoid unnecessary processing
+        if (isReady && !verbose) {
+          return;
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
+        if (Buffer.isBuffer(data)) {
           if (verbose) {
-            logger.log(`NATS server is ready!`);
+            logger.log(data.toString());
           }
-          resolve(this);
-          this.process?.unref();
+
+          // Optimization: Check buffer directly to avoid allocating a string for the check
+          if (!isReady && data.includes(serverReadyBuffer)) {
+            isReady = true;
+
+            if (verbose) {
+              logger.log(`NATS server is ready!`);
+            }
+            resolve(this);
+            this.process?.unref();
+          }
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string
+          const dataStr = data?.toString();
+
+          if (verbose && dataStr != null) {
+            logger.log(dataStr);
+          }
+
+          if (!isReady && dataStr?.includes(`Server is ready`) === true) {
+            isReady = true;
+            if (verbose) {
+              logger.log(`NATS server is ready!`);
+            }
+            resolve(this);
+            this.process?.unref();
+          }
         }
       });
 
