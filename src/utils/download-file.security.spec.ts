@@ -5,10 +5,10 @@ import path from 'path';
 import { pipeline } from 'stream/promises';
 
 // Mock make-fetch-happen
-jest.mock('make-fetch-happen');
-jest.mock('stream/promises');
+jest.mock(`make-fetch-happen`);
+jest.mock(`stream/promises`);
 
-describe('downloadFile Security', () => {
+describe(`downloadFile Security`, () => {
   const mockFetch = fetch as unknown as jest.Mock;
   const mockPipeline = pipeline as unknown as jest.Mock;
   let createWriteStreamSpy: jest.SpyInstance;
@@ -16,32 +16,36 @@ describe('downloadFile Security', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Spy on createWriteStream and prevent actual file creation
-    createWriteStreamSpy = jest.spyOn(fs, 'createWriteStream').mockImplementation(() => {
+    createWriteStreamSpy = jest
+      .spyOn(fs, `createWriteStream`)
+      .mockImplementation(() => {
         return {
-            on: jest.fn(),
-            write: jest.fn(),
-            end: jest.fn(),
-            emit: jest.fn(),
+          on: jest.fn(),
+          write: jest.fn(),
+          end: jest.fn(),
+          emit: jest.fn(),
         } as unknown as fs.WriteStream;
-    });
+      });
   });
 
   afterEach(() => {
     createWriteStreamSpy.mockRestore();
   });
 
-  it('should prevent path traversal attacks via Content-Disposition filename', async () => {
-    const url = 'http://example.com/malicious.zip';
-    const downloadDir = path.resolve('/tmp/nats-download');
+  it(`should prevent path traversal attacks via Content-Disposition filename`, async () => {
+    const url = `http://example.com/malicious.zip`;
+    const downloadDir = path.resolve(`/tmp/nats-download`);
     // Malicious filename attempting to traverse up
-    const maliciousFilename = '../../../../etc/passwd';
+    const maliciousFilename = `../../../../etc/passwd`;
 
     const mockResponse = {
       ok: true,
       headers: {
-        get: jest.fn().mockReturnValue(`attachment; filename=${maliciousFilename}`),
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename=${maliciousFilename}`),
       },
-      body: 'mockBody',
+      body: `mockBody`,
     };
 
     mockFetch.mockResolvedValue(mockResponse);
@@ -53,7 +57,7 @@ describe('downloadFile Security', () => {
     const callArgs = createWriteStreamSpy.mock.calls[0];
     const destinationPath = callArgs[0] as string;
 
-    console.log('Destination Path:', destinationPath);
+    console.log(`Destination Path:`, destinationPath);
 
     // Assert that the destination path is effectively outside the download directory
     // We expect this to FAIL once we fix the vulnerability (i.e., we want it to be safe)
@@ -72,6 +76,6 @@ describe('downloadFile Security', () => {
     expect(isSafe).toBe(true);
 
     // Also assert the filename is correct (sanitized)
-    expect(path.basename(destinationPath)).toBe('passwd');
+    expect(path.basename(destinationPath)).toBe(`passwd`);
   });
 });
