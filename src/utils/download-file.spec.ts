@@ -14,9 +14,19 @@ describe(`downloadFile`, () => {
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
   const mockResolve = path.resolve as unknown as jest.Mock;
+  const mockBasename = path.basename as unknown as jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockBasename.mockImplementation((p) => p);
+    // Default resolve implementation to handle dir check
+    mockResolve.mockImplementation((...args) => {
+      // If resolving just one arg, assume it's dir resolution
+      if (args.length === 1) return args[0];
+      // If resolving two args, assume it's dir + file
+      if (args.length === 2) return `${args[0]}/${args[1]}`;
+      return '/tmp/file.zip';
+    });
   });
 
   it(`should download a file successfully`, async () => {
@@ -32,7 +42,6 @@ describe(`downloadFile`, () => {
     };
 
     mockFetch.mockResolvedValue(mockResponse);
-    mockResolve.mockReturnValue(destination);
     mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
     mockPipeline.mockResolvedValue(undefined);
 
@@ -40,6 +49,7 @@ describe(`downloadFile`, () => {
 
     expect(result).toBe(destination);
     expect(mockFetch).toHaveBeenCalledWith(url, {});
+    expect(mockBasename).toHaveBeenCalledWith(`file.zip`);
     expect(mockResolve).toHaveBeenCalledWith(dir, `file.zip`);
     expect(mockCreateWriteStream).toHaveBeenCalledWith(destination);
     expect(mockPipeline).toHaveBeenCalledWith(`mockBody`, `mockWriteStream`);
