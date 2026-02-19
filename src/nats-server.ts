@@ -88,7 +88,7 @@ export class NatsServer {
 
         let isReady = false;
 
-        if (dataStr) {
+        if (dataStr != null) {
           isReady = dataStr.includes(`Server is ready`);
         } else if (Buffer.isBuffer(data)) {
           isReady = data.includes(`Server is ready`);
