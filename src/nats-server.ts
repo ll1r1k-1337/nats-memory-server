@@ -80,13 +80,24 @@ export class NatsServer {
 
       this.process.stderr.on(`data`, (data: unknown) => {
         // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const dataStr = data?.toString();
+        const dataStr = verbose ? data?.toString() : undefined;
 
         if (verbose && dataStr != null) {
           logger.log(dataStr);
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
+        let isReady = false;
+
+        if (dataStr) {
+          isReady = dataStr.includes(`Server is ready`);
+        } else if (Buffer.isBuffer(data)) {
+          isReady = data.includes(`Server is ready`);
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string
+          isReady = data?.toString()?.includes(`Server is ready`) === true;
+        }
+
+        if (isReady) {
           if (verbose) {
             logger.log(`NATS server is ready!`);
           }
