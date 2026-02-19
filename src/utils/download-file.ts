@@ -39,10 +39,10 @@ export async function downloadFile(
   const contentDisposition = response.headers.get(CONTENT_DISPOSITION_KEY);
   let fileName: string | undefined;
 
-  if (contentDisposition) {
+  if (contentDisposition != null) {
     // Try to extract filename using regex for quoted and unquoted values
     const match = contentDisposition.match(/filename="?([^"]+)"?/);
-    if (match) {
+    if (match != null) {
       fileName = match[1];
     } else {
       // Fallback to simple split if regex doesn't match
@@ -62,7 +62,7 @@ export async function downloadFile(
   // Ensure the resolved path is within the target directory
   const resolvedDir = path.resolve(dir);
   if (!destination.startsWith(resolvedDir)) {
-     throw new Error(`Invalid destination path: ${destination}`);
+    throw new Error(`Invalid destination path: ${destination}`);
   }
 
   const fileStream = createWriteStream(destination);

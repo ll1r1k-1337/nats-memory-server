@@ -20,12 +20,14 @@ describe(`downloadFile`, () => {
     jest.clearAllMocks();
     mockBasename.mockImplementation((p) => p);
     // Default resolve implementation to handle dir check
-    mockResolve.mockImplementation((...args) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockResolve.mockImplementation((...args: any[]) => {
       // If resolving just one arg, assume it's dir resolution
       if (args.length === 1) return args[0];
       // If resolving two args, assume it's dir + file
+      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
       if (args.length === 2) return `${args[0]}/${args[1]}`;
-      return '/tmp/file.zip';
+      return `/tmp/file.zip`;
     });
   });
 
