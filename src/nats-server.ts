@@ -5,6 +5,9 @@ import {
   getProjectPath,
   type NatsMemoryServerConfig,
 } from './utils';
+
+const SERVER_READY_BUFFER = Buffer.from(`Server is ready`);
+
 export interface Logger {
   log: (message: string, ...args: unknown[]) => void;
   error: (message: string, ...args: unknown[]) => void;
@@ -59,6 +62,7 @@ export class NatsServer {
 
     const config = { ...projectConfig, ...this.options };
     const { args, ip, port = await getFreePort(), binPath } = config;
+    let isReady = false;
 
     return await new Promise((resolve, reject) => {
       this.process = child_process.spawn(
@@ -79,19 +83,53 @@ export class NatsServer {
       });
 
       this.process.stderr.on(`data`, (data: unknown) => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const dataStr = data?.toString();
-
-        if (verbose && dataStr != null) {
-          logger.log(dataStr);
+        // Optimization: If the server is already ready and we're not in verbose mode,
+        // we can skip processing the stderr output entirely to save resources.
+        if (isReady && !verbose) {
+          return;
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
-          if (verbose) {
-            logger.log(`NATS server is ready!`);
+        const isBuffer = Buffer.isBuffer(data);
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string
+        let dataStr = isBuffer ? undefined : data?.toString();
+
+        if (verbose) {
+          if (dataStr === undefined) {
+            // eslint-disable-next-line @typescript-eslint/no-base-to-string
+            dataStr = data?.toString();
           }
-          resolve(this);
-          this.process?.unref();
+
+          if (dataStr != null) {
+            logger.log(dataStr);
+          }
+        }
+
+        if (!isReady) {
+          let ready = false;
+
+          if (isBuffer) {
+            if (data.includes(SERVER_READY_BUFFER)) {
+              ready = true;
+            }
+          } else {
+            if (dataStr === undefined) {
+              // eslint-disable-next-line @typescript-eslint/no-base-to-string
+              dataStr = data?.toString();
+            }
+
+            if (dataStr?.includes(`Server is ready`) === true) {
+              ready = true;
+            }
+          }
+
+          if (ready) {
+            isReady = true;
+            if (verbose) {
+              logger.log(`NATS server is ready!`);
+            }
+            resolve(this);
+            this.process?.unref();
+          }
         }
       });
 
