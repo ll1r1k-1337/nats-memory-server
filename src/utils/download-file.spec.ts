@@ -14,9 +14,11 @@ describe(`downloadFile`, () => {
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
   const mockResolve = path.resolve as unknown as jest.Mock;
+  const mockBasename = path.basename as unknown as jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockBasename.mockImplementation((name) => name);
   });
 
   it(`should download a file successfully`, async () => {
