@@ -5,6 +5,9 @@ import {
   getProjectPath,
   type NatsMemoryServerConfig,
 } from './utils';
+
+const serverReadyBuffer = Buffer.from('Server is ready');
+
 export interface Logger {
   log: (message: string, ...args: unknown[]) => void;
   error: (message: string, ...args: unknown[]) => void;
@@ -61,6 +64,8 @@ export class NatsServer {
     const { args, ip, port = await getFreePort(), binPath } = config;
 
     return await new Promise((resolve, reject) => {
+      let isReady = false;
+
       this.process = child_process.spawn(
         binPath,
         [`--addr`, ip, `--port`, port.toString(), ...args],
@@ -78,18 +83,23 @@ export class NatsServer {
         reject(err);
       });
 
-      this.process.stderr.on(`data`, (data: unknown) => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const dataStr = data?.toString();
-
-        if (verbose && dataStr != null) {
-          logger.log(dataStr);
+      this.process.stderr.on(`data`, (data: Buffer) => {
+        // Optimization: if server is ready and not verbose, skip processing to avoid string allocation
+        if (isReady && !verbose) {
+          return;
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
+        if (verbose) {
+          logger.log(data.toString());
+        }
+
+        if (!isReady && data.includes(serverReadyBuffer)) {
+          isReady = true;
+
           if (verbose) {
             logger.log(`NATS server is ready!`);
           }
+
           resolve(this);
           this.process?.unref();
         }
