@@ -6,7 +6,7 @@ import {
   type NatsMemoryServerConfig,
 } from './utils';
 
-const serverReadyBuffer = Buffer.from('Server is ready');
+const serverReadyBuffer = Buffer.from(`Server is ready`);
 
 export interface Logger {
   log: (message: string, ...args: unknown[]) => void;
