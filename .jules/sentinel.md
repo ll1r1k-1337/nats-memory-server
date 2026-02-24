@@ -1,0 +1,4 @@
+## 2026-02-24 - Path Traversal in File Download
+**Vulnerability:** The `downloadFile` utility extracted filenames from the `Content-Disposition` header using simple string splitting without sanitization. This allowed a malicious server (or MITM) to supply a filename like `../../../etc/passwd`, leading to arbitrary file overwrite (Zip Slip / Path Traversal).
+**Learning:** Never trust filenames provided by external sources, even from headers. Simple string splitting is insufficient for parsing complex headers like `Content-Disposition` which can contain quotes and parameters.
+**Prevention:** Always sanitize filenames using `path.basename()` to strip directory components. Use a robust regex to parse `Content-Disposition` headers. Verify that the final resolved path is within the intended directory using `startsWith()` on resolved paths.
