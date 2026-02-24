@@ -14,9 +14,12 @@ describe(`downloadFile`, () => {
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
   const mockResolve = path.resolve as unknown as jest.Mock;
+  const mockBasename = path.basename as unknown as jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Configure basename mock to return the input filename (simulating basename behavior for simple filenames)
+    mockBasename.mockImplementation((name) => name);
   });
 
   it(`should download a file successfully`, async () => {
@@ -40,6 +43,8 @@ describe(`downloadFile`, () => {
 
     expect(result).toBe(destination);
     expect(mockFetch).toHaveBeenCalledWith(url, {});
+    // Verify basename was called
+    expect(mockBasename).toHaveBeenCalledWith(`file.zip`);
     expect(mockResolve).toHaveBeenCalledWith(dir, `file.zip`);
     expect(mockCreateWriteStream).toHaveBeenCalledWith(destination);
     expect(mockPipeline).toHaveBeenCalledWith(`mockBody`, `mockWriteStream`);
