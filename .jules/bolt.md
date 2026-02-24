@@ -1,0 +1,3 @@
+## 2026-02-24 - NatsServer Log Processing Optimization
+**Learning:** When monitoring high-volume log streams (like `stderr` in `NatsServer`), repeatedly calling `.toString()` on every binary chunk to check for a specific state (e.g., "Server is ready") creates significant unnecessary string allocations and GC pressure.
+**Action:** Use `Buffer.includes()` (or check `instanceof Buffer` first) to search for byte sequences directly in the buffer. Use a state flag (e.g., `isReady`) to bypass these checks entirely once the target state is reached, ensuring the stream processing becomes a no-op for the rest of the process lifecycle.
