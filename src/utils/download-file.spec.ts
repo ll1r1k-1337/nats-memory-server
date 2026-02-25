@@ -14,6 +14,7 @@ describe(`downloadFile`, () => {
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
   const mockResolve = path.resolve as unknown as jest.Mock;
+  const mockBasename = path.basename as unknown as jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -33,6 +34,7 @@ describe(`downloadFile`, () => {
 
     mockFetch.mockResolvedValue(mockResponse);
     mockResolve.mockReturnValue(destination);
+    mockBasename.mockReturnValue(`file.zip`);
     mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
     mockPipeline.mockResolvedValue(undefined);
 
@@ -40,6 +42,7 @@ describe(`downloadFile`, () => {
 
     expect(result).toBe(destination);
     expect(mockFetch).toHaveBeenCalledWith(url, {});
+    expect(mockBasename).toHaveBeenCalledWith(`file.zip`);
     expect(mockResolve).toHaveBeenCalledWith(dir, `file.zip`);
     expect(mockCreateWriteStream).toHaveBeenCalledWith(destination);
     expect(mockPipeline).toHaveBeenCalledWith(`mockBody`, `mockWriteStream`);
@@ -58,6 +61,7 @@ describe(`downloadFile`, () => {
 
     mockFetch.mockResolvedValue(mockResponse);
     mockResolve.mockReturnValue(`/tmp/file.zip`);
+    mockBasename.mockReturnValue(`file.zip`);
     mockPipeline.mockResolvedValue(undefined);
 
     await downloadFile(url, `/tmp`, { httpProxy: proxy });
@@ -78,6 +82,7 @@ describe(`downloadFile`, () => {
 
     mockFetch.mockResolvedValue(mockResponse);
     mockResolve.mockReturnValue(`/tmp/file.zip`);
+    mockBasename.mockReturnValue(`file.zip`);
     mockPipeline.mockResolvedValue(undefined);
 
     await downloadFile(url, `/tmp`, { httpsProxy: proxy });
@@ -98,6 +103,7 @@ describe(`downloadFile`, () => {
 
     mockFetch.mockResolvedValue(mockResponse);
     mockResolve.mockReturnValue(`/tmp/file.zip`);
+    mockBasename.mockReturnValue(`file.zip`);
     mockPipeline.mockResolvedValue(undefined);
 
     await downloadFile(url, `/tmp`, { noProxy });
