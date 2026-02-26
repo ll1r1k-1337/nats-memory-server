@@ -36,13 +36,17 @@ export async function downloadFile(
     throw new Error(`Failed to download ${url}: ${response.statusText}`);
   }
 
-  const fileName = response.headers
-    .get(CONTENT_DISPOSITION_KEY)
-    ?.split(`filename=`)?.[1];
+  const contentDisposition = response.headers.get(CONTENT_DISPOSITION_KEY);
+  const fileNameMatch = contentDisposition?.match(
+    /filename=(?:"([^"]+)"|([^;]+))/i,
+  );
+  let fileName = fileNameMatch?.[1] ?? fileNameMatch?.[2];
 
   if (fileName == null) {
     throw new Error(`No filename in content-disposition`);
   }
+
+  fileName = path.basename(fileName);
 
   const destination = path.resolve(dir, fileName);
   const fileStream = createWriteStream(destination);
