@@ -78,20 +78,41 @@ export class NatsServer {
         reject(err);
       });
 
-      this.process.stderr.on(`data`, (data: unknown) => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const dataStr = data?.toString();
+      let isReady = false;
 
-        if (verbose && dataStr != null) {
-          logger.log(dataStr);
+      this.process.stderr.on(`data`, (data: unknown) => {
+        // Optimization: Check for readiness without converting to string if possible,
+        // and stop checking once ready.
+        if (!isReady) {
+          if (Buffer.isBuffer(data)) {
+            if (data.includes(`Server is ready`)) {
+              isReady = true;
+            }
+          } else {
+            // Fallback for non-buffer data
+            const str = String(data);
+            if (str.includes(`Server is ready`)) {
+              isReady = true;
+            }
+          }
+
+          if (isReady) {
+            if (verbose) {
+              logger.log(`NATS server is ready!`);
+            }
+            resolve(this);
+            // We do not call this.process.unref() here as it causes issues when verbose is false
+            // and we stop consuming stderr data aggressively.
+          }
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
-          if (verbose) {
-            logger.log(`NATS server is ready!`);
+        if (verbose) {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string
+          const dataStr = data?.toString();
+
+          if (dataStr != null) {
+            logger.log(dataStr);
           }
-          resolve(this);
-          this.process?.unref();
         }
       });
 
@@ -141,7 +162,7 @@ export class NatsServer {
         if (verbose) {
           logger.log(`NATS server was stop at:`, this.getUrl());
         }
-
+        this.process = undefined;
         resolve();
       });
 
