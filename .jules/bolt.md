@@ -1,0 +1,3 @@
+## 2023-10-27 - [High-volume stream optimization in NatsServer]
+**Learning:** For high-volume log streams (like `stderr` in `NatsServer`), using `Buffer.includes()` on binary chunks to detect state changes (e.g., "Server is ready") is significantly more efficient than calling `.toString()` on every chunk, as it avoids repeated string allocations. Also, introducing a state flag (`isReady`) to bypass the check entirely on subsequent chunks provides an O(1) skipping mechanism after the desired state is reached.
+**Action:** When monitoring data streams, use state flags to bypass expensive operations once the desired state is reached, and prefer operating directly on Buffers over converting to strings whenever possible, especially when only searching for a static marker.
