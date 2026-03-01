@@ -8,7 +8,7 @@ jest.mock(`make-fetch-happen`);
 jest.mock(`fs`);
 jest.mock(`path`, () => ({
   resolve: jest.fn(),
-  basename: jest.fn((p) => p.split(`/`).pop()?.split(`\\`).pop() || p),
+  basename: jest.fn((p: string) => p.split(`/`).pop()?.split(`\\`).pop() ?? p),
 }));
 jest.mock(`stream/promises`);
 
