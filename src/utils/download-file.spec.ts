@@ -6,7 +6,10 @@ import { pipeline } from 'stream/promises';
 
 jest.mock(`make-fetch-happen`);
 jest.mock(`fs`);
-jest.mock(`path`);
+jest.mock(`path`, () => ({
+  resolve: jest.fn(),
+  basename: jest.fn((p) => p.split(`/`).pop()?.split(`\\`).pop() || p),
+}));
 jest.mock(`stream/promises`);
 
 describe(`downloadFile`, () => {
@@ -27,6 +30,32 @@ describe(`downloadFile`, () => {
       ok: true,
       headers: {
         get: jest.fn().mockReturnValue(`attachment; filename=file.zip`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockResolve.mockReturnValue(destination);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    const result = await downloadFile(url, dir);
+
+    expect(result).toBe(destination);
+    expect(mockFetch).toHaveBeenCalledWith(url, {});
+    expect(mockResolve).toHaveBeenCalledWith(dir, `file.zip`);
+    expect(mockCreateWriteStream).toHaveBeenCalledWith(destination);
+    expect(mockPipeline).toHaveBeenCalledWith(`mockBody`, `mockWriteStream`);
+  });
+
+  it(`should download a file successfully with quoted filename`, async () => {
+    const url = `http://example.com/file.zip`;
+    const dir = `/tmp`;
+    const destination = `/tmp/file.zip`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest.fn().mockReturnValue(`attachment; filename="file.zip"`),
       },
       body: `mockBody`,
     };
@@ -117,6 +146,35 @@ describe(`downloadFile`, () => {
     await expect(downloadFile(url)).rejects.toThrow(
       `Failed to download http://example.com/file.zip: Not Found`,
     );
+  });
+
+  it(`should strip path traversal payloads and surrounding quotes from filename`, async () => {
+    const url = `http://example.com/file.zip`;
+    const dir = `/tmp`;
+    const destination = `/tmp/passwd`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="../../etc/passwd"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockResolve.mockReturnValue(destination);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    const result = await downloadFile(url, dir);
+
+    expect(result).toBe(destination);
+    expect(mockFetch).toHaveBeenCalledWith(url, {});
+    // Should use path.basename to extract 'passwd'
+    expect(mockResolve).toHaveBeenCalledWith(dir, `passwd`);
+    expect(mockCreateWriteStream).toHaveBeenCalledWith(destination);
+    expect(mockPipeline).toHaveBeenCalledWith(`mockBody`, `mockWriteStream`);
   });
 
   it(`should throw error if filename is missing`, async () => {
