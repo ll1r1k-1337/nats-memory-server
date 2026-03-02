@@ -1,0 +1,4 @@
+## 2024-06-13 - Path Traversal via Content-Disposition in Download File
+**Vulnerability:** The `downloadFile` function unsafely extracted the `filename` from the `Content-Disposition` header using a naive string split and directly concatenated it into the file system path using `path.resolve()`. If a remote server sends a malicious header like `filename="../../../etc/passwd"`, this would result in a path traversal vulnerability and arbitrary file overwrite.
+**Learning:** Naively trusting user-supplied or remote-supplied input for filenames in HTTP headers, especially `Content-Disposition`, is dangerous. Proper extraction requires regular expressions that account for optional quotes and encoding.
+**Prevention:** Always use `path.basename()` when dealing with external filenames to strip out any directory paths and prevent path traversal attacks. Additionally, use robust regex to parse the filename attribute.
