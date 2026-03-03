@@ -78,15 +78,20 @@ export class NatsServer {
         reject(err);
       });
 
+      // ⚡ Bolt: Optimize stream handling by tracking ready state
+      // Avoids expensive string allocations and scans for every log line emitted over the server's lifetime
+      let isReady = false;
+      const readyIndicator = Buffer.from(`Server is ready`);
       this.process.stderr.on(`data`, (data: unknown) => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const dataStr = data?.toString();
+        const chunk = data as Buffer;
 
-        if (verbose && dataStr != null) {
-          logger.log(dataStr);
+        if (verbose) {
+          logger.log(chunk.toString());
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
+        // ⚡ Bolt: Use binary inclusion check before converting to string, and skip entirely once ready
+        if (!isReady && chunk.includes(readyIndicator)) {
+          isReady = true;
           if (verbose) {
             logger.log(`NATS server is ready!`);
           }

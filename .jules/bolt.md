@@ -1,0 +1,3 @@
+## 2024-05-14 - Optimize High-Volume Data Streams
+**Learning:** For long-running child processes emitting a high volume of logs to stderr (like NatsServer), continuously converting binary chunks to strings via `.toString()` just to check for readiness creates an unnecessary performance bottleneck that scales with the lifetime of the process.
+**Action:** When monitoring data streams for a specific one-time event (like "Server is ready"), use state flags (e.g., `isReady`) to completely bypass check logic once the desired state is reached. Additionally, use `Buffer.includes()` on the raw binary chunks instead of coercing them to strings to find indicators, avoiding expensive string allocations.
