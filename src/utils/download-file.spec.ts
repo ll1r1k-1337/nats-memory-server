@@ -17,6 +17,17 @@ describe(`downloadFile`, () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockResolve.mockImplementation(
+      (dir: string, file: string) => `${dir}/${file}`,
+    );
+    (path.basename as jest.Mock).mockImplementation((p: string) => {
+      const parts = p.split(`/`);
+      const last = parts[parts.length - 1];
+      if (last != null && last !== ``) {
+        return last;
+      }
+      return p;
+    });
   });
 
   it(`should download a file successfully`, async () => {
@@ -117,6 +128,29 @@ describe(`downloadFile`, () => {
     await expect(downloadFile(url)).rejects.toThrow(
       `Failed to download http://example.com/file.zip: Not Found`,
     );
+  });
+
+  it(`should sanitize filename to prevent path traversal`, async () => {
+    const url = `http://example.com/file.zip`;
+    const dir = `/tmp`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="../../../etc/passwd"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    const result = await downloadFile(url, dir);
+
+    expect(result).toBe(`/tmp/passwd`);
+    expect(mockResolve).toHaveBeenCalledWith(dir, `passwd`);
   });
 
   it(`should throw error if filename is missing`, async () => {
