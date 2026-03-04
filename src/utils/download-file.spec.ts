@@ -36,6 +36,9 @@ describe(`downloadFile`, () => {
     mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
     mockPipeline.mockResolvedValue(undefined);
 
+    const mockBasename = path.basename as jest.Mock;
+    mockBasename.mockReturnValueOnce(`file.zip`);
+
     const result = await downloadFile(url, dir);
 
     expect(result).toBe(destination);
@@ -60,6 +63,9 @@ describe(`downloadFile`, () => {
     mockResolve.mockReturnValue(`/tmp/file.zip`);
     mockPipeline.mockResolvedValue(undefined);
 
+    const mockBasename = path.basename as jest.Mock;
+    mockBasename.mockReturnValueOnce(`file.zip`);
+
     await downloadFile(url, `/tmp`, { httpProxy: proxy });
 
     expect(mockFetch).toHaveBeenCalledWith(url, { proxy });
@@ -79,6 +85,9 @@ describe(`downloadFile`, () => {
     mockFetch.mockResolvedValue(mockResponse);
     mockResolve.mockReturnValue(`/tmp/file.zip`);
     mockPipeline.mockResolvedValue(undefined);
+
+    const mockBasename = path.basename as jest.Mock;
+    mockBasename.mockReturnValueOnce(`file.zip`);
 
     await downloadFile(url, `/tmp`, { httpsProxy: proxy });
 
@@ -100,6 +109,9 @@ describe(`downloadFile`, () => {
     mockResolve.mockReturnValue(`/tmp/file.zip`);
     mockPipeline.mockResolvedValue(undefined);
 
+    const mockBasename = path.basename as jest.Mock;
+    mockBasename.mockReturnValueOnce(`file.zip`);
+
     await downloadFile(url, `/tmp`, { noProxy });
 
     expect(mockFetch).toHaveBeenCalledWith(url, { noProxy });
@@ -117,6 +129,35 @@ describe(`downloadFile`, () => {
     await expect(downloadFile(url)).rejects.toThrow(
       `Failed to download http://example.com/file.zip: Not Found`,
     );
+  });
+
+  it(`should prevent path traversal from content-disposition header`, async () => {
+    const url = `http://example.com/file.zip`;
+    const dir = `/tmp`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="../../../etc/passwd"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockResolve.mockReturnValue(`/tmp/passwd`);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    // Provide a mocked path.basename implementation just for this test
+    const mockBasename = path.basename as jest.Mock;
+    mockBasename.mockReturnValueOnce(`passwd`);
+
+    const result = await downloadFile(url, dir);
+
+    expect(mockBasename).toHaveBeenCalledWith(`../../../etc/passwd`);
+    expect(mockResolve).toHaveBeenCalledWith(dir, `passwd`);
+    expect(result).toBe(`/tmp/passwd`);
   });
 
   it(`should throw error if filename is missing`, async () => {
