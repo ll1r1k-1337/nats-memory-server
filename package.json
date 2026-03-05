@@ -86,7 +86,8 @@
   },
   "dependencies": {
     "decompress": "^4.2.1",
-    "make-fetch-happen": "^15.0.3"
+    "make-fetch-happen": "^15.0.3",
+    "mitata": "^1.0.34"
   },
   "bugs": {
     "url": "https://github.com/Llirik1337/nats-memory-server/issues"
