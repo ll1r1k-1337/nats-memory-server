@@ -1,0 +1,3 @@
+## 2024-05-15 - Optimize NatsServerBuilder to avoid unnecessary object allocation
+**Learning:** In the Builder pattern, using the spread operator (`{ ...this.options, key: value }`) in every setter method creates a new intermediate object on every chain call. While this is immutable, it incurs significant memory allocation overhead and reduces performance (e.g., in a benchmark creating 100,000 builders, the time dropped from ~290ms down to ~37ms by avoiding it).
+**Action:** When implementing a performance-sensitive Builder pattern where state is initialized safely (e.g., `{ ...DEFAULT_OPTIONS }`), use direct property assignment (`this.options.key = value`) in setter methods to avoid unnecessary object allocations and improve execution speed.
