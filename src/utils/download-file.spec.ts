@@ -17,6 +17,13 @@ describe(`downloadFile`, () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    // 🛡️ Sentinel: explicitly mock path.basename to work across platforms for testing
+    const originalPath = jest.requireActual(`path`);
+    mockResolve.mockImplementation(originalPath.resolve);
+    (path.basename as unknown as jest.Mock).mockImplementation((p: string) => {
+      return p.split(`/`).pop()?.split(`\\`).pop() ?? p;
+    });
   });
 
   it(`should download a file successfully`, async () => {
@@ -133,5 +140,50 @@ describe(`downloadFile`, () => {
     await expect(downloadFile(url)).rejects.toThrow(
       `No filename in content-disposition`,
     );
+  });
+
+  it(`should mitigate path traversal when extracting filename`, async () => {
+    const url = `http://example.com/file.zip`;
+    const dir = `/tmp`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="../../../etc/passwd"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    await downloadFile(url, dir);
+
+    expect(mockFetch).toHaveBeenCalledWith(url, {});
+    expect(mockResolve).toHaveBeenCalledWith(dir, `passwd`);
+  });
+
+  it(`should handle quoted filenames`, async () => {
+    const url = `http://example.com/file.zip`;
+    const dir = `/tmp`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="quoted-file.zip"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    await downloadFile(url, dir);
+
+    expect(mockResolve).toHaveBeenCalledWith(dir, `quoted-file.zip`);
   });
 });
