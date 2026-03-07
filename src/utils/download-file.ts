@@ -36,11 +36,21 @@ export async function downloadFile(
     throw new Error(`Failed to download ${url}: ${response.statusText}`);
   }
 
-  const fileName = response.headers
-    .get(CONTENT_DISPOSITION_KEY)
-    ?.split(`filename=`)?.[1];
+  const contentDisposition = response.headers.get(CONTENT_DISPOSITION_KEY);
+  let fileName: string | undefined;
 
-  if (fileName == null) {
+  if (contentDisposition != null) {
+    const match = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i.exec(
+      contentDisposition,
+    );
+    if (match?.[1] != null) {
+      fileName = match[1].replace(/^(['"])(.*)\1$/, '$2').trim();
+      // SECURITY: Prevent path traversal vulnerabilities
+      fileName = path.basename(fileName);
+    }
+  }
+
+  if (fileName == null || fileName === '') {
     throw new Error(`No filename in content-disposition`);
   }
 
