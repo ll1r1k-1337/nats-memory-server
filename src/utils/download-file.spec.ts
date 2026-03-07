@@ -20,7 +20,7 @@ describe(`downloadFile`, () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockBasename.mockImplementation((p: string) =>
-      p.split('/').pop()?.split('\\').pop(),
+      p.split(`/`).pop()?.split(`\\`).pop(),
     );
   });
 

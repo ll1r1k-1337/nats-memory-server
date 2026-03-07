@@ -44,13 +44,13 @@ export async function downloadFile(
       contentDisposition,
     );
     if (match?.[1] != null) {
-      fileName = match[1].replace(/^(['"])(.*)\1$/, '$2').trim();
+      fileName = match[1].replace(/^(['"])(.*)\1$/, `$2`).trim();
       // SECURITY: Prevent path traversal vulnerabilities
       fileName = path.basename(fileName);
     }
   }
 
-  if (fileName == null || fileName === '') {
+  if (fileName == null || fileName === ``) {
     throw new Error(`No filename in content-disposition`);
   }
 
