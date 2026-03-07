@@ -1,0 +1,3 @@
+## 2024-03-07 - Optimize NatsServer stderr processing
+**Learning:** For high-volume log streams (like stderr from a spawned child process, e.g., NatsServer), continuously converting binary chunks to strings (`.toString()`) and searching them for readiness messages after the server is already ready causes unnecessary CPU load and string allocations.
+**Action:** Use a state flag (`isReady`) to early-return and completely bypass expensive operations (like `.toString()`) once the desired state has been reached, provided the verbose logging is turned off. If `verbose` is true, we still need to process the stream to log it, but otherwise we can skip processing completely.
