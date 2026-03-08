@@ -44,7 +44,16 @@ export async function downloadFile(
     throw new Error(`No filename in content-disposition`);
   }
 
-  const destination = path.resolve(dir, fileName);
+  // 🛡️ Sentinel: Sanitize filename to prevent Path Traversal vulnerabilities
+  const sanitizedFileName = path.basename(
+    fileName.replace(/^(['"])(.*)\1$/, `$2`).trim(),
+  );
+
+  if (sanitizedFileName === ``) {
+    throw new Error(`Invalid filename in content-disposition`);
+  }
+
+  const destination = path.resolve(dir, sanitizedFileName);
   const fileStream = createWriteStream(destination);
 
   await pipeline(response.body, fileStream);

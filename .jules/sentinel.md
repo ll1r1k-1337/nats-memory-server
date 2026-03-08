@@ -1,0 +1,4 @@
+## 2024-05-18 - Path Traversal via Content-Disposition
+**Vulnerability:** The application was extracting filenames directly from the `content-disposition` header of remote responses and passing them to `path.resolve()` without sanitization. An attacker controlling the remote endpoint could supply a filename like `../../../etc/passwd` to overwrite arbitrary files outside the intended download directory (Path Traversal).
+**Learning:** External inputs, including HTTP headers (which often feel "system generated"), are untrusted vectors and can be manipulated. Any file operation (read, write, resolve) based on an external input needs validation and containment.
+**Prevention:** Always apply `path.basename()` to any path components derived from user input or external responses to strip away any directory traversal sequences (like `../`). Combine with stripping unexpected characters (like surrounding quotes from headers) before performing file I/O operations.
