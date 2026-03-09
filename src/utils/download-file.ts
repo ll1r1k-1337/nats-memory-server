@@ -36,9 +36,18 @@ export async function downloadFile(
     throw new Error(`Failed to download ${url}: ${response.statusText}`);
   }
 
-  const fileName = response.headers
-    .get(CONTENT_DISPOSITION_KEY)
-    ?.split(`filename=`)?.[1];
+  const contentDisposition = response.headers.get(CONTENT_DISPOSITION_KEY);
+  let fileName = null;
+  if (contentDisposition != null) {
+    // 🛡️ Sentinel: Sanitize filename to prevent path traversal
+    const match = contentDisposition.match(
+      /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i,
+    );
+    if (match?.[1] != null) {
+      const extracted = match[1].replace(/^(['"])(.*)\1$/, `$2`).trim();
+      fileName = path.basename(extracted);
+    }
+  }
 
   if (fileName == null) {
     throw new Error(`No filename in content-disposition`);
