@@ -6,7 +6,14 @@ import { pipeline } from 'stream/promises';
 
 jest.mock(`make-fetch-happen`);
 jest.mock(`fs`);
-jest.mock(`path`);
+jest.mock(`path`, () => {
+  const actual = jest.requireActual(`path`);
+  return {
+    ...actual,
+    resolve: jest.fn(),
+    basename: (p: string) => p.split(`/`).pop()?.split(`\\`).pop(),
+  };
+});
 jest.mock(`stream/promises`);
 
 describe(`downloadFile`, () => {
