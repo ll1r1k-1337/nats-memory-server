@@ -1,0 +1,3 @@
+## 2026-03-14 - Optimize NATS server stderr parsing
+**Learning:** In NatsServer, the child process stderr stream continuously emitted log chunks that were `.toString()`'d on every chunk just to check for a start condition ("Server is ready"). This causes excessive string allocations for long-running processes.
+**Action:** Use an `isReady` state flag to immediately early-return from the `data` listener and bypass expensive operations completely once the state is reached. Before state is reached, check `Buffer.isBuffer(data)` and use `.includes()` directly on the binary buffer instead of converting every chunk to a string.
