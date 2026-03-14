@@ -17,6 +17,12 @@ describe(`downloadFile`, () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    // We need to provide a mock implementation for path.basename to work since it is mocked globally
+    const mockBasename = path.basename as unknown as jest.Mock;
+    mockBasename.mockImplementation(
+      (p: string) => p.split(`/`).pop()?.split(`\\`).pop() ?? p,
+    );
   });
 
   it(`should download a file successfully`, async () => {
@@ -32,6 +38,7 @@ describe(`downloadFile`, () => {
     };
 
     mockFetch.mockResolvedValue(mockResponse);
+
     mockResolve.mockReturnValue(destination);
     mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
     mockPipeline.mockResolvedValue(undefined);
@@ -57,6 +64,7 @@ describe(`downloadFile`, () => {
     };
 
     mockFetch.mockResolvedValue(mockResponse);
+
     mockResolve.mockReturnValue(`/tmp/file.zip`);
     mockPipeline.mockResolvedValue(undefined);
 
@@ -77,6 +85,7 @@ describe(`downloadFile`, () => {
     };
 
     mockFetch.mockResolvedValue(mockResponse);
+
     mockResolve.mockReturnValue(`/tmp/file.zip`);
     mockPipeline.mockResolvedValue(undefined);
 
@@ -97,6 +106,7 @@ describe(`downloadFile`, () => {
     };
 
     mockFetch.mockResolvedValue(mockResponse);
+
     mockResolve.mockReturnValue(`/tmp/file.zip`);
     mockPipeline.mockResolvedValue(undefined);
 
@@ -133,5 +143,30 @@ describe(`downloadFile`, () => {
     await expect(downloadFile(url)).rejects.toThrow(
       `No filename in content-disposition`,
     );
+  });
+
+  it(`should sanitize filename to prevent path traversal`, async () => {
+    const url = `http://example.com/evil.zip`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="../../../etc/passwd"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    // Let mockResolve just echo its inputs so we can verify the arguments
+    mockResolve.mockImplementation((d: string, f: string) => `${d}/${f}`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    const destination = await downloadFile(url, `/tmp`);
+
+    const mockBasename = path.basename as unknown as jest.Mock;
+    expect(mockBasename).toHaveBeenCalledWith(`../../../etc/passwd`);
+    expect(mockResolve).toHaveBeenCalledWith(`/tmp`, `passwd`);
+    expect(destination).toBe(`/tmp/passwd`);
   });
 });
