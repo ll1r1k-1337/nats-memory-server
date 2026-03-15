@@ -60,6 +60,7 @@ export class NatsServer {
     const config = { ...projectConfig, ...this.options };
     const { args, ip, port = await getFreePort(), binPath } = config;
 
+    let isReady = false;
     return await new Promise((resolve, reject) => {
       this.process = child_process.spawn(
         binPath,
@@ -79,6 +80,9 @@ export class NatsServer {
       });
 
       this.process.stderr.on(`data`, (data: unknown) => {
+        // ⚡ Bolt: Early return if already ready and not verbose to save CPU cycles
+        if (isReady && !verbose) return;
+
         // eslint-disable-next-line @typescript-eslint/no-base-to-string
         const dataStr = data?.toString();
 
@@ -86,12 +90,20 @@ export class NatsServer {
           logger.log(dataStr);
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
-          if (verbose) {
-            logger.log(`NATS server is ready!`);
+        if (!isReady) {
+          // ⚡ Bolt: Use Buffer.includes for faster check before converting to string if possible
+          const isServerReady = Buffer.isBuffer(data)
+            ? data.includes(`Server is ready`)
+            : dataStr?.includes(`Server is ready`) === true;
+
+          if (isServerReady) {
+            isReady = true;
+            if (verbose) {
+              logger.log(`NATS server is ready!`);
+            }
+            resolve(this);
+            this.process?.unref();
           }
-          resolve(this);
-          this.process?.unref();
         }
       });
 
