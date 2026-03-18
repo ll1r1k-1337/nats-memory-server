@@ -1,0 +1,4 @@
+## 2024-03-18 - Path Traversal Vulnerability in `downloadFile`
+**Vulnerability:** The `downloadFile` function in `src/utils/download-file.ts` constructs a file destination using `path.resolve(dir, fileName)`, where `fileName` is extracted directly from the `Content-Disposition` HTTP header without sanitization. An attacker controlling the URL response can include directory traversal sequences (e.g., `filename="../../../etc/passwd"`) to overwrite arbitrary files on the system running the server.
+**Learning:** Parsing HTTP headers, particularly `Content-Disposition`, for filenames requires robust sanitization because the values are untrusted external input.
+**Prevention:** Always use `path.basename()` to strip directory components from untrusted filenames before resolving them against a target directory.
