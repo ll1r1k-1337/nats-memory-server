@@ -1,0 +1,3 @@
+## 2024-05-24 - NatsServerBuilder Object Allocation Optimization
+**Learning:** In the `NatsServerBuilder` class, every setter (e.g., `setPort`, `setVerbose`) uses object spreading (`this.options = { ...this.options, key: value }`) to update the options object. This creates a new object allocation on every method call, which is expensive, particularly in a Builder pattern where methods are frequently chained.
+**Action:** Use direct property assignment (`this.options.key = value`) in builder setter methods to avoid unnecessary object allocations. To ensure this is safe and doesn't mutate a shared default configuration, the state object must be explicitly cloned during initialization (e.g., `this.options = { ...DEFAULT_NATS_SERVER_OPTIONS }`).
