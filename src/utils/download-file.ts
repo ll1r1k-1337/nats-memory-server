@@ -36,9 +36,18 @@ export async function downloadFile(
     throw new Error(`Failed to download ${url}: ${response.statusText}`);
   }
 
-  const fileName = response.headers
-    .get(CONTENT_DISPOSITION_KEY)
-    ?.split(`filename=`)?.[1];
+  const contentDisposition = response.headers.get(CONTENT_DISPOSITION_KEY);
+  const match = contentDisposition?.match(
+    /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i,
+  );
+  const rawFileName = match?.[1]?.replace(/^(['"])(.*)\1$/, `$2`).trim();
+
+  // 🛡️ Sentinel: Sanitize against Path Traversal by extracting only the basename
+  // and normalizing backslashes to handle cross-platform attacks (e.g. Windows paths on Linux)
+  const fileName =
+    rawFileName != null && rawFileName !== ``
+      ? path.basename(rawFileName.replace(/\\/g, `/`))
+      : undefined;
 
   if (fileName == null) {
     throw new Error(`No filename in content-disposition`);
