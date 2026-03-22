@@ -14,8 +14,12 @@ describe(`downloadFile`, () => {
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
   const mockResolve = path.resolve as unknown as jest.Mock;
+  const mockBasename = path.basename as unknown as jest.Mock;
 
   beforeEach(() => {
+    mockBasename.mockImplementation(
+      (p: string) => p.split(`/`).pop()?.split(`\\`).pop() ?? p,
+    );
     jest.clearAllMocks();
   });
 
@@ -117,6 +121,29 @@ describe(`downloadFile`, () => {
     await expect(downloadFile(url)).rejects.toThrow(
       `Failed to download http://example.com/file.zip: Not Found`,
     );
+  });
+
+  it(`should prevent path traversal in filename`, async () => {
+    const url = `http://example.com/file.zip`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="../../../evil.sh"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockResolve.mockReturnValue(`/tmp/evil.sh`);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    await downloadFile(url, `/tmp`);
+
+    expect(mockBasename).toHaveBeenCalledWith(`../../../evil.sh`);
+    expect(mockResolve).toHaveBeenCalledWith(`/tmp`, `evil.sh`);
   });
 
   it(`should throw error if filename is missing`, async () => {

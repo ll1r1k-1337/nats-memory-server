@@ -1,0 +1,4 @@
+## 2026-03-22 - Path Traversal in File Download
+**Vulnerability:** The application was extracting filenames from the `Content-Disposition` header using a simple split without sanitization. An attacker could use a server returning `filename="../../../evil.sh"` to perform path traversal when `path.resolve` was called, potentially writing files to arbitrary locations on disk.
+**Learning:** `path.resolve()` combines paths but does not restrict them to a specific base directory. Extracting filenames from untrusted input requires strict sanitization. Relying solely on `path.basename` may also fail on POSIX systems if the path uses backslashes (e.g., `..\..\evil.sh`).
+**Prevention:** Always sanitize untrusted filenames by replacing backslashes with forward slashes and using `path.basename()` before resolving the path. Additionally, use robust regex patterns when extracting fields from HTTP headers.
