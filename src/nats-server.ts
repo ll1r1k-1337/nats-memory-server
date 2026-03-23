@@ -61,6 +61,7 @@ export class NatsServer {
     const { args, ip, port = await getFreePort(), binPath } = config;
 
     return await new Promise((resolve, reject) => {
+      let isReady = false;
       this.process = child_process.spawn(
         binPath,
         [`--addr`, ip, `--port`, port.toString(), ...args],
@@ -79,6 +80,22 @@ export class NatsServer {
       });
 
       this.process.stderr.on(`data`, (data: unknown) => {
+        // ⚡ Bolt Performance Optimization:
+        // Bypass expensive allocations (.toString) completely if server is ready and not verbose
+        if (isReady && !verbose) {
+          return;
+        }
+
+        // For non-verbose mode, avoid converting the chunk to string unless it actually contains the ready message
+        if (
+          !isReady &&
+          !verbose &&
+          Buffer.isBuffer(data) &&
+          !data.includes(`Server is ready`)
+        ) {
+          return;
+        }
+
         // eslint-disable-next-line @typescript-eslint/no-base-to-string
         const dataStr = data?.toString();
 
@@ -86,10 +103,11 @@ export class NatsServer {
           logger.log(dataStr);
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
+        if (!isReady && dataStr?.includes(`Server is ready`) === true) {
           if (verbose) {
             logger.log(`NATS server is ready!`);
           }
+          isReady = true;
           resolve(this);
           this.process?.unref();
         }
