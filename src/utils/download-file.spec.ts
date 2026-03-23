@@ -18,7 +18,9 @@ describe(`downloadFile`, () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockBasename.mockImplementation((p) => p.split(`/`).pop()?.split(`\\`).pop() ?? p);
+    mockBasename.mockImplementation(
+      (p) => p.split(`/`).pop()?.split(`\\`).pop() ?? p,
+    );
   });
 
   it(`should download a file successfully`, async () => {
