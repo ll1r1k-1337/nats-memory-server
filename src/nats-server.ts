@@ -78,20 +78,32 @@ export class NatsServer {
         reject(err);
       });
 
+      let isReady = false;
       this.process.stderr.on(`data`, (data: unknown) => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const dataStr = data?.toString();
+        // ⚡ Bolt: Optimize by skipping processing if already ready and not verbose
+        if (isReady && !verbose) return;
 
-        if (verbose && dataStr != null) {
-          logger.log(dataStr);
+        // ⚡ Bolt: Check for ready state using Buffer.includes to avoid expensive string allocation
+        if (!isReady) {
+          const isReadyNow = Buffer.isBuffer(data)
+            ? data.includes(`Server is ready`)
+            : // eslint-disable-next-line @typescript-eslint/no-base-to-string
+              data?.toString().includes(`Server is ready`);
+
+          if (isReadyNow === true) {
+            isReady = true;
+            if (verbose) {
+              logger.log(`NATS server is ready!`);
+            }
+            resolve(this);
+            this.process?.unref();
+          }
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
-          if (verbose) {
-            logger.log(`NATS server is ready!`);
-          }
-          resolve(this);
-          this.process?.unref();
+        // ⚡ Bolt: Only convert to string if verbose logging is enabled
+        if (verbose && data != null) {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string
+          logger.log(data.toString());
         }
       });
 
