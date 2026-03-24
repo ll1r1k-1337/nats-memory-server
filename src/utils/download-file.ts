@@ -36,13 +36,22 @@ export async function downloadFile(
     throw new Error(`Failed to download ${url}: ${response.statusText}`);
   }
 
-  const fileName = response.headers
-    .get(CONTENT_DISPOSITION_KEY)
-    ?.split(`filename=`)?.[1];
+  const contentDisposition = response.headers.get(CONTENT_DISPOSITION_KEY);
+  const match = contentDisposition?.match(
+    /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i,
+  );
+  let rawFileName = match?.[1];
 
-  if (fileName == null) {
+  if (rawFileName == null) {
     throw new Error(`No filename in content-disposition`);
   }
+
+  // Clean up any surrounding quotes that might have been captured
+  rawFileName = rawFileName.replace(/^(['"])(.*)\1$/, `$2`).trim();
+
+  // Security validation: Prevent path traversal by extracting only the base name.
+  // We replace backslashes with forward slashes to handle Windows paths in POSIX environments.
+  const fileName = path.basename(rawFileName.replace(/\\/g, `/`));
 
   const destination = path.resolve(dir, fileName);
   const fileStream = createWriteStream(destination);
