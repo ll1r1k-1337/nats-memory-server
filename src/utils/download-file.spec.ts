@@ -14,6 +14,13 @@ describe(`downloadFile`, () => {
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
   const mockResolve = path.resolve as unknown as jest.Mock;
+  const mockBasename = path.basename as unknown as jest.Mock;
+
+  beforeAll(() => {
+    mockBasename.mockImplementation(
+      (p: string) => p.split(`/`).pop()?.split(`\\`).pop() ?? p,
+    );
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -133,5 +140,28 @@ describe(`downloadFile`, () => {
     await expect(downloadFile(url)).rejects.toThrow(
       `No filename in content-disposition`,
     );
+  });
+
+  it(`should prevent path traversal when filename contains directory components`, async () => {
+    const url = `http://example.com/file.zip`;
+    const dir = `/tmp`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="../../etc/passwd"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockResolve.mockReturnValue(`/tmp/passwd`);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    await downloadFile(url, dir);
+
+    expect(mockResolve).toHaveBeenCalledWith(dir, `passwd`);
   });
 });

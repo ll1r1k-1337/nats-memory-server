@@ -1,0 +1,4 @@
+## 2024-03-25 - Prevent Path Traversal via Content-Disposition
+**Vulnerability:** The application extracted filenames directly from the `content-disposition` HTTP header without sanitization, leading to a path traversal vulnerability. An attacker could potentially supply a malicious filename (e.g., `../../../etc/passwd`), forcing the application to write files to arbitrary directories on the host.
+**Learning:** HTTP headers such as `content-disposition` must always be treated as untrusted user input, even if the destination URL appears safe, because the underlying server could be compromised or manipulated to return a malicious payload.
+**Prevention:** Always extract filenames using robust regex to handle quoting properly, and pass the parsed filename through `path.basename()` (after standardizing slashes with `.replace(/\\/g, '/')`) to eliminate all directory traversal attempts before saving to the filesystem.
