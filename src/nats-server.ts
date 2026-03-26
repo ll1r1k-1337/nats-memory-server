@@ -78,15 +78,37 @@ export class NatsServer {
         reject(err);
       });
 
+      let isReady = false;
       this.process.stderr.on(`data`, (data: unknown) => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const dataStr = data?.toString();
+        // ⚡ Bolt: Fast-path early return for high-volume logs after readiness
+        if (isReady && !verbose) {
+          return;
+        }
+
+        let dataStr: string | undefined;
+
+        if (verbose || !isReady) {
+          if (Buffer.isBuffer(data)) {
+            if (!isReady && data.includes(`Server is ready`)) {
+              isReady = true;
+            }
+            if (verbose) {
+              dataStr = data.toString();
+            }
+          } else {
+            // eslint-disable-next-line @typescript-eslint/no-base-to-string
+            dataStr = data?.toString();
+            if (!isReady && dataStr?.includes(`Server is ready`) === true) {
+              isReady = true;
+            }
+          }
+        }
 
         if (verbose && dataStr != null) {
           logger.log(dataStr);
         }
 
-        if (dataStr?.includes(`Server is ready`) === true) {
+        if (isReady) {
           if (verbose) {
             logger.log(`NATS server is ready!`);
           }
@@ -142,6 +164,7 @@ export class NatsServer {
           logger.log(`NATS server was stop at:`, this.getUrl());
         }
 
+        this.process = undefined;
         resolve();
       });
 
