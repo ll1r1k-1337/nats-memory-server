@@ -6,7 +6,10 @@ import { pipeline } from 'stream/promises';
 
 jest.mock(`make-fetch-happen`);
 jest.mock(`fs`);
-jest.mock(`path`);
+jest.mock(`path`, () => ({
+  resolve: jest.fn(),
+  basename: jest.fn((p: string) => p.split(`/`).pop()?.split(`\\`).pop() ?? p),
+}));
 jest.mock(`stream/promises`);
 
 describe(`downloadFile`, () => {
@@ -14,6 +17,7 @@ describe(`downloadFile`, () => {
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
   const mockResolve = path.resolve as unknown as jest.Mock;
+  const mockBasename = path.basename as unknown as jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
