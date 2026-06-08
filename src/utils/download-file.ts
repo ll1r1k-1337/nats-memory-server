@@ -52,9 +52,14 @@ export async function downloadFile(
     throw new Error(`No filename in content-disposition`);
   }
 
-  // 🛡️ Sentinel: Prevent path traversal by extracting only the base filename.
+  // Prevent path traversal by extracting only the base filename.
   // Replace backslashes first to handle Windows-style traversal paths on POSIX systems.
   const safeFileName = path.basename(fileName.replace(/\\/g, `/`));
+
+  if (safeFileName === ``) {
+    throw new Error(`No filename in content-disposition`);
+  }
+
   const destination = path.resolve(dir, safeFileName);
   const fileStream = createWriteStream(destination);
 
