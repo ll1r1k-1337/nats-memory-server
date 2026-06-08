@@ -8,6 +8,7 @@ import {
   getProjectConfig,
   getProjectPath,
   getUrl,
+  withRetry,
 } from '../utils';
 
 process.nextTick(async function () {
@@ -29,16 +30,38 @@ process.nextTick(async function () {
       noProxy,
     } = config;
 
-    const filePath = await downloadFile(downloadUrl, os.tmpdir(), {
-      httpProxy,
-      httpsProxy,
-      noProxy,
-    });
+    // The download can be truncated by transient CI network issues, leaving a
+    // partial archive that fails to decompress ("end of central directory record
+    // signature not found"). Wrapping both the download and the decompress in a
+    // retry uses the decompress step itself as the integrity check: a corrupt or
+    // incomplete archive throws and triggers a fresh download.
+    await withRetry(
+      async () => {
+        // Clear any partial state left behind by a previous failed attempt
+        // before downloading and extracting again.
+        fs.rmSync(downloadDir, { recursive: true, force: true });
 
-    console.log(`Downloaded was successful`);
+        const filePath = await downloadFile(downloadUrl, os.tmpdir(), {
+          httpProxy,
+          httpsProxy,
+          noProxy,
+        });
 
-    await decompress(filePath, downloadDir, { strip: 1 });
+        console.log(`Downloaded was successful`);
 
-    console.log(`Decompress was successful sources`);
+        await decompress(filePath, downloadDir, { strip: 1 });
+
+        console.log(`Decompress was successful sources`);
+      },
+      {
+        onRetry: (error, attempt) => {
+          console.log(
+            `NATS server download/extract failed (${
+              error instanceof Error ? error.message : String(error)
+            }). Retrying (attempt ${attempt})...`,
+          );
+        },
+      },
+    );
   }
 });

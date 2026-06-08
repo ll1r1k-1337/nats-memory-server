@@ -5,3 +5,4 @@ export * from './get-url';
 export * from './get-platform';
 export * from './get-arch';
 export * from './get-project-config';
+export * from './with-retry';
