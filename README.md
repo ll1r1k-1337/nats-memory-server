@@ -13,7 +13,9 @@
 5. [Configuration](#configuration)
 6. [API Reference](#api-reference)
 7. [NATS Jetstream](#nats-jetstream)
-8. [Contributing](#contributing)
+8. [Testing with Jest](#testing-with-jest)
+9. [Contributing](#contributing)
+10. [License](#license)
 
 
 # Description
@@ -224,8 +226,39 @@ new NatsServer({
 });
 ```
 
+## Testing with Jest
+
+A common use case is spinning up a server once per test suite. Start it in
+`beforeAll` and tear it down in `afterAll`:
+
+```javascript
+const { NatsServerBuilder } = require('nats-memory-server');
+const { connect } = require('nats');
+
+let server;
+let nc;
+
+beforeAll(async () => {
+  server = await NatsServerBuilder.create().build().start();
+  nc = await connect({ servers: server.getUrl() });
+});
+
+afterAll(async () => {
+  await nc.close();
+  await server.stop();
+});
+
+test('should publish and subscribe', async () => {
+  // Your test logic here
+});
+```
+
 ## Contributing
 
 Contributions are welcome! If you find any issues or have suggestions for improvement, please feel free to open an issue or submit a pull request on the [GitHub repository](https://github.com/Llirik1337/nats-memory-server).
 
 When contributing, please ensure to follow the [code of conduct](https://github.com/Llirik1337/nats-memory-server/blob/main/CODE_OF_CONDUCT.md).
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](https://github.com/Llirik1337/nats-memory-server/blob/main/LICENSE) file for details.
