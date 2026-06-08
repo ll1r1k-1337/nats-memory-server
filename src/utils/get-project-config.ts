@@ -162,12 +162,19 @@ async function getProjectConfigUncached(
 export async function getProjectConfig(
   projectPath: string,
 ): Promise<NatsMemoryServerConfig> {
-  if (projectConfigCache.has(projectPath)) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    return await projectConfigCache.get(projectPath)!;
+  const cached = projectConfigCache.get(projectPath);
+  if (cached !== undefined) {
+    return await cached;
   }
 
   const configPromise = getProjectConfigUncached(projectPath);
+  // Do not cache a rejection: evict the entry on failure so a later call can
+  // retry once the underlying cause (a transient fs error, a malformed config
+  // file, ts-node not yet installed, ...) is resolved, instead of re-rejecting
+  // with the original error for the rest of the process lifetime.
+  void configPromise.catch(() => {
+    projectConfigCache.delete(projectPath);
+  });
   projectConfigCache.set(projectPath, configPromise);
   return await configPromise;
 }
