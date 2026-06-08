@@ -106,6 +106,7 @@ You can configure the library using one of the following files:
   "version": "v2.9.16",
   "buildFromSource": false,
   "binPath": "node_modules/.cache/nats-memory-server/nats-server",
+  "verifyChecksum": "warn",
   "verbose": true,
   "ip": "0.0.0.0"
 }
@@ -122,6 +123,7 @@ You can configure the library using one of the following files:
 - `httpProxy`: (string) Proxy URL for HTTP requests.
 - `httpsProxy`: (string) Proxy URL for HTTPS requests.
 - `noProxy`: (string) Domain extensions to bypass the proxy.
+- `verifyChecksum`: (`'strict' | 'warn' | 'off'`) Verify the downloaded archive against the release's published `SHA256SUMS` before extracting/executing it. `warn` (default) aborts the install on a checksum **mismatch** but only warns when a checksum cannot be obtained (e.g. a custom `downloadUrl` or `buildFromSource`); `strict` also aborts when the checksum is unavailable; `off` disables the check. Default: `warn`.
 
 **Runtime Options:**
 - `port`: (number) Port to listen on. If not specified, a free port is chosen.

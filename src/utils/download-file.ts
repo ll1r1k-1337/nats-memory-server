@@ -11,11 +11,8 @@ export interface DownloadFileOptions {
   noProxy?: string;
 }
 
-export async function downloadFile(
-  url: string,
-  dir = `./`,
-  options: DownloadFileOptions = {},
-): Promise<string> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildFetchOptions(url: string, options: DownloadFileOptions): any {
   const proxy = url.startsWith(`https:`)
     ? options.httpsProxy
     : options.httpProxy;
@@ -30,7 +27,30 @@ export async function downloadFile(
     fetchOptions.noProxy = options.noProxy;
   }
 
-  const response = await fetch(url, fetchOptions);
+  return fetchOptions;
+}
+
+/** Fetches a small text resource (e.g. a SHA256SUMS file) with the same proxy
+ * handling as {@link downloadFile}. */
+export async function fetchText(
+  url: string,
+  options: DownloadFileOptions = {},
+): Promise<string> {
+  const response = await fetch(url, buildFetchOptions(url, options));
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+  }
+
+  return await response.text();
+}
+
+export async function downloadFile(
+  url: string,
+  dir = `./`,
+  options: DownloadFileOptions = {},
+): Promise<string> {
+  const response = await fetch(url, buildFetchOptions(url, options));
 
   if (!response.ok) {
     throw new Error(`Failed to download ${url}: ${response.statusText}`);
