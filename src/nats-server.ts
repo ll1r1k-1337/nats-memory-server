@@ -80,40 +80,41 @@ export class NatsServer {
 
       let isReady = false;
       this.process.stderr.on(`data`, (data: unknown) => {
-        // ⚡ Bolt: Fast-path early return for high-volume logs after readiness
+        // Once ready, non-verbose mode has nothing left to do on this stream,
+        // so skip the work entirely for high-volume logs.
         if (isReady && !verbose) {
           return;
         }
 
+        // Only allocate a string when we actually need it (verbose logging or
+        // the readiness check on a non-Buffer chunk).
         let dataStr: string | undefined;
-
-        if (verbose || !isReady) {
-          if (Buffer.isBuffer(data)) {
-            if (!isReady && data.includes(`Server is ready`)) {
-              isReady = true;
-            }
-            if (verbose) {
-              dataStr = data.toString();
-            }
-          } else {
-            // eslint-disable-next-line @typescript-eslint/no-base-to-string
-            dataStr = data?.toString();
-            if (!isReady && dataStr?.includes(`Server is ready`) === true) {
-              isReady = true;
-            }
+        if (Buffer.isBuffer(data)) {
+          if (verbose) {
+            dataStr = data.toString();
           }
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string
+          dataStr = data?.toString();
         }
 
         if (verbose && dataStr != null) {
           logger.log(dataStr);
         }
 
-        if (isReady) {
-          if (verbose) {
-            logger.log(`NATS server is ready!`);
+        if (!isReady) {
+          const ready = Buffer.isBuffer(data)
+            ? data.includes(`Server is ready`)
+            : dataStr?.includes(`Server is ready`) === true;
+
+          if (ready) {
+            isReady = true;
+            if (verbose) {
+              logger.log(`NATS server is ready!`);
+            }
+            resolve(this);
+            this.process?.unref();
           }
-          resolve(this);
-          this.process?.unref();
         }
       });
 
