@@ -8,6 +8,8 @@ on:
 jobs:
   build-test-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # required for the GITHUB_TOKEN to create a Release
 
     steps:
       - name: Checkout
@@ -39,3 +41,9 @@ jobs:
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: ${{ success() }}
+        run: gh release create "${GITHUB_REF_NAME}" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
