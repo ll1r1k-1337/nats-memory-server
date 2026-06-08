@@ -1,4 +1,4 @@
-import { downloadFile } from './download-file';
+import { downloadFile, fetchText } from './download-file';
 import fetch from 'make-fetch-happen';
 import fs from 'fs';
 import path from 'path';
@@ -183,5 +183,51 @@ describe(`downloadFile`, () => {
       `No filename in content-disposition`,
     );
     expect(mockCreateWriteStream).not.toHaveBeenCalled();
+  });
+});
+
+describe(`fetchText`, () => {
+  const mockFetch = fetch as unknown as jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it(`returns the response body text`, async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: jest.fn().mockResolvedValue(`hash  asset.zip`),
+    });
+
+    const result = await fetchText(`https://example.com/SHA256SUMS`);
+
+    expect(result).toBe(`hash  asset.zip`);
+    expect(mockFetch).toHaveBeenCalledWith(
+      `https://example.com/SHA256SUMS`,
+      {},
+    );
+  });
+
+  it(`passes the https proxy for an https target`, async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: jest.fn().mockResolvedValue(`x`),
+    });
+
+    await fetchText(`https://example.com/SHA256SUMS`, {
+      httpsProxy: `http://proxy.com`,
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(`https://example.com/SHA256SUMS`, {
+      proxy: `http://proxy.com`,
+    });
+  });
+
+  it(`throws when the response is not ok`, async () => {
+    mockFetch.mockResolvedValue({ ok: false, statusText: `Not Found` });
+
+    await expect(fetchText(`https://example.com/SHA256SUMS`)).rejects.toThrow(
+      `Failed to fetch https://example.com/SHA256SUMS: Not Found`,
+    );
   });
 });

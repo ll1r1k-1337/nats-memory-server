@@ -3,11 +3,13 @@ import fs from 'fs';
 import os from 'os';
 import {
   downloadFile,
+  fetchText,
   getArch,
   getPlatform,
   getProjectConfig,
   getProjectPath,
   getUrl,
+  verifyChecksum,
   withRetry,
 } from '../utils';
 
@@ -28,6 +30,7 @@ process.nextTick(async function () {
       httpProxy,
       httpsProxy,
       noProxy,
+      verifyChecksum: verifyChecksumMode = `warn`,
     } = config;
 
     // The download can be truncated by transient CI network issues, leaving a
@@ -48,6 +51,19 @@ process.nextTick(async function () {
         });
 
         console.log(`Downloaded was successful`);
+
+        // Verify the archive against the release's published SHA256SUMS before
+        // extracting/executing it. Skipped for buildFromSource (a source
+        // tarball, not a checksummed release asset).
+        if (!buildFromSource) {
+          await verifyChecksum(
+            filePath,
+            downloadUrl,
+            verifyChecksumMode,
+            { httpProxy, httpsProxy, noProxy },
+            { fetchText, logger: console },
+          );
+        }
 
         await decompress(filePath, downloadDir, { strip: 1 });
 

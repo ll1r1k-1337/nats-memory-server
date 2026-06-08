@@ -1,5 +1,6 @@
 import path, { isAbsolute } from 'path';
 import fs, { promises as fsPromises } from 'fs';
+import { type ChecksumMode } from './verify-checksum';
 
 const configKey = `natsMemoryServer` as const;
 const configFileBaseName = `nats-memory-server` as const;
@@ -73,6 +74,8 @@ export interface NatsMemoryServerConfig {
   httpProxy?: string;
   httpsProxy?: string;
   noProxy?: string;
+  /** Integrity check for the downloaded archive. Default: `warn`. */
+  verifyChecksum?: ChecksumMode;
 }
 
 const defaultConfig: NatsMemoryServerConfig = {
@@ -81,6 +84,7 @@ const defaultConfig: NatsMemoryServerConfig = {
   version: `v2.9.16`,
   buildFromSource: false,
   binPath: `node_modules/.cache/nats-memory-server/nats-server`,
+  verifyChecksum: `warn`,
 };
 
 function prepareConfig(
