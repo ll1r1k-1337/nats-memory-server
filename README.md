@@ -108,7 +108,7 @@ You can configure the library using one of the following files:
   "binPath": "node_modules/.cache/nats-memory-server/nats-server",
   "verifyChecksum": "warn",
   "verbose": true,
-  "ip": "0.0.0.0"
+  "ip": "127.0.0.1"
 }
 ```
 
@@ -127,7 +127,7 @@ You can configure the library using one of the following files:
 
 **Runtime Options:**
 - `port`: (number) Port to listen on. If not specified, a free port is chosen.
-- `ip`: (string) IP address to bind to. Default: `0.0.0.0`.
+- `ip`: (string) IP address to bind to. Default: `127.0.0.1` (loopback only). Set it to `0.0.0.0` to expose the server on all network interfaces — note the broker has no authentication by default.
 - `verbose`: (boolean) Enable verbose logging. Default: `true`.
 - `args`: (string[]) Additional arguments to pass to the NATS server.
 
@@ -193,7 +193,7 @@ Starts the NATS server. Returns a promise that resolves to the server instance w
 Stops the NATS server.
 
 #### `getUrl(): string`
-Returns the connection URL (e.g., `nats://0.0.0.0:4222`).
+Returns the connection URL (e.g., `nats://127.0.0.1:4222`).
 
 #### `getHost(): string`
 Returns the host.

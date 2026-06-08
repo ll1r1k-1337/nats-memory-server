@@ -1,6 +1,27 @@
 import { NatsServer } from './nats-server';
 import { NatsServerBuilder } from './nats-server.builder';
+import { getFreePort } from './utils';
 import { connect, StringCodec } from 'nats';
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
 
 describe(NatsServer.name, () => {
   it(`Should start and stop NATS server`, async () => {
@@ -66,5 +87,98 @@ describe(NatsServer.name, () => {
     await server.stop();
 
     expect(logger.log).toHaveBeenCalled();
+  });
+
+  it(`Should reject start() when the server exits before becoming ready (port already in use)`, async () => {
+    const ip = `127.0.0.1`;
+    const port = await getFreePort();
+
+    const blocker = await NatsServerBuilder.create()
+      .setIp(ip)
+      .setPort(port)
+      .setVerbose(false)
+      .build()
+      .start();
+
+    try {
+      const second = NatsServerBuilder.create()
+        .setIp(ip)
+        .setPort(port)
+        .setVerbose(false)
+        .build();
+
+      await expect(second.start()).rejects.toThrow();
+    } finally {
+      await blocker.stop();
+    }
+  });
+
+  it(`Should not hang when stop() is called after the process already exited`, async () => {
+    const server = NatsServerBuilder.create().setVerbose(false).build();
+    await server.start();
+
+    // Simulate the process dying on its own (a crash), independently of stop().
+    const child = (
+      server as unknown as {
+        process: NodeJS.EventEmitter & { kill: () => void };
+      }
+    ).process;
+    child.kill();
+    await new Promise<void>((resolve) => {
+      child.once(`close`, () => {
+        resolve();
+      });
+    });
+
+    await expect(
+      withTimeout(server.stop(), 3000, `stop() after exit`),
+    ).resolves.toBeUndefined();
+  });
+
+  it(`Should not hang when stop() is called twice`, async () => {
+    const server = NatsServerBuilder.create().setVerbose(false).build();
+    await server.start();
+    await server.stop();
+
+    await expect(
+      withTimeout(server.stop(), 3000, `second stop()`),
+    ).resolves.toBeUndefined();
+  });
+
+  it(`Should start a new running server after stop() (restart)`, async () => {
+    const server = NatsServerBuilder.create()
+      .setIp(`127.0.0.1`)
+      .setVerbose(false)
+      .build();
+
+    await server.start();
+    await server.stop();
+
+    await withTimeout(server.start(), 5000, `restart start()`);
+
+    const client = await connect({ servers: server.getUrl() });
+    expect(client.isClosed()).toBe(false);
+    await client.close();
+
+    await server.stop();
+  });
+
+  it(`Should bind to loopback (127.0.0.1) by default`, async () => {
+    const server = NatsServerBuilder.create().setVerbose(false).build();
+
+    await server.start();
+
+    try {
+      expect(server.getHost()).toBe(`127.0.0.1`);
+      expect(server.getUrl()).toMatch(/^nats:\/\/127\.0\.0\.1:/);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it(`Should reject start() with a clear error when binPath is explicitly undefined`, async () => {
+    const server = NatsServerBuilder.create({ binPath: undefined }).build();
+
+    await expect(server.start()).rejects.toThrow(/binPath/);
   });
 });

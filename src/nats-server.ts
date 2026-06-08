@@ -1,10 +1,5 @@
 import child_process from 'child_process';
-import {
-  getFreePort,
-  getProjectConfig,
-  getProjectPath,
-  type NatsMemoryServerConfig,
-} from './utils';
+import { getFreePort, getProjectConfig, getProjectPath } from './utils';
 export interface Logger {
   log: (message: string, ...args: unknown[]) => void;
   error: (message: string, ...args: unknown[]) => void;
@@ -23,13 +18,15 @@ export interface NatsServerOptions {
 
 export const DEFAULT_NATS_SERVER_OPTIONS = {
   verbose: true,
-  ip: `0.0.0.0`,
+  // Bind to loopback by default so the ephemeral test broker is not exposed,
+  // unauthenticated, on every network interface. Opt into a wider bind (e.g.
+  // `0.0.0.0`) explicitly via setIp() when cross-host access is actually needed.
+  ip: `127.0.0.1`,
   args: [],
   logger: console,
 } satisfies NatsServerOptions;
 
 export class NatsServer {
-  private static projectConfigPromise?: Promise<NatsMemoryServerConfig>;
   private process?: child_process.ChildProcessWithoutNullStreams;
 
   private host!: string;
@@ -50,15 +47,17 @@ export class NatsServer {
       return this;
     }
 
-    if (NatsServer.projectConfigPromise === undefined) {
-      const projectPath = getProjectPath();
-      NatsServer.projectConfigPromise = getProjectConfig(projectPath);
-    }
-
-    const projectConfig = await NatsServer.projectConfigPromise;
+    // getProjectConfig memoizes per project path (and no longer caches a
+    // rejection), so calling it directly each start() is both cheap and
+    // recoverable — no separate static promise cache is needed here.
+    const projectConfig = await getProjectConfig(getProjectPath());
 
     const config = { ...projectConfig, ...this.options };
     const { args, ip, port = await getFreePort(), binPath } = config;
+
+    if (binPath == null) {
+      throw new Error(`Could not resolve a binPath for the NATS server binary`);
+    }
 
     return await new Promise((resolve, reject) => {
       this.process = child_process.spawn(
@@ -70,15 +69,21 @@ export class NatsServer {
       this.host = ip;
       this.port = port;
 
+      let isReady = false;
+
       this.process.once(`error`, (err) => {
         if (verbose) {
           logger.error(`NATS server error:`, err);
         }
 
-        reject(err);
+        // Only fail the start Promise if we never became ready; a transient
+        // error after readiness must not tear down a running server's handle.
+        if (!isReady) {
+          this.process = undefined;
+          reject(err);
+        }
       });
 
-      let isReady = false;
       this.process.stderr.on(`data`, (data: unknown) => {
         // Once ready, non-verbose mode has nothing left to do on this stream,
         // so skip the work entirely for high-volume logs.
@@ -118,17 +123,24 @@ export class NatsServer {
         }
       });
 
-      this.process.on(`close`, (code) => {
+      this.process.once(`close`, (code) => {
+        // The child has exited: clear the handle so a later stop() does not
+        // kill() a dead process (which never re-emits `close`, hanging stop())
+        // and so start() can spawn a fresh server on a subsequent call.
+        this.process = undefined;
+
         if (verbose) {
           logger.log(`NATS server was stop!`);
         }
 
-        if (code === 0 || code === 1) {
-          resolve(this);
-        } else {
-          const message = `Process was killed ${
-            code !== null ? `with exit code: ${code}` : ``
-          } `;
+        // Exiting before the readiness signal is always a failure regardless of
+        // the exit code (nats-server exits 0 on `--help`, 1 on a port conflict).
+        // After readiness the start Promise is already settled, so this branch
+        // is a no-op for the normal shutdown path.
+        if (!isReady) {
+          const message = `NATS server exited before becoming ready${
+            code !== null ? ` (exit code: ${code})` : ``
+          }`;
 
           if (verbose) {
             logger.warn(message, code);
@@ -153,23 +165,34 @@ export class NatsServer {
   }
 
   public async stop(): Promise<void> {
-    if (this.process == null) {
+    const child = this.process;
+
+    if (child == null) {
       return;
     }
 
     const { verbose, logger } = this.options;
 
+    // The child has already exited (it crashed, or stop() was called before).
+    // kill() would be a no-op that never emits `close`, so awaiting one here
+    // would hang forever — just drop the dead handle and return.
+    if (child.exitCode !== null || child.signalCode !== null) {
+      this.process = undefined;
+      return;
+    }
+
     await new Promise<void>((resolve) => {
-      this.process?.on(`close`, (_code, _signal) => {
+      child.once(`close`, (_code, _signal) => {
+        this.process = undefined;
+
         if (verbose) {
           logger.log(`NATS server was stop at:`, this.getUrl());
         }
 
-        this.process = undefined;
         resolve();
       });
 
-      this.process?.kill();
+      child.kill();
     });
   }
 }
