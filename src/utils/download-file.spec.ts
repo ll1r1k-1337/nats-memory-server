@@ -6,7 +6,10 @@ import { pipeline } from 'stream/promises';
 
 jest.mock(`make-fetch-happen`);
 jest.mock(`fs`);
-jest.mock(`path`);
+jest.mock(`path`, () => ({
+  resolve: jest.fn(),
+  basename: jest.fn((p: string) => p.split(`/`).pop()?.split(`\\`).pop() ?? p),
+}));
 jest.mock(`stream/promises`);
 
 describe(`downloadFile`, () => {
@@ -14,6 +17,7 @@ describe(`downloadFile`, () => {
   const mockPipeline = pipeline as unknown as jest.Mock;
   const mockCreateWriteStream = fs.createWriteStream as unknown as jest.Mock;
   const mockResolve = path.resolve as unknown as jest.Mock;
+  const mockBasename = path.basename as unknown as jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -133,5 +137,51 @@ describe(`downloadFile`, () => {
     await expect(downloadFile(url)).rejects.toThrow(
       `No filename in content-disposition`,
     );
+  });
+
+  it(`should strip path traversal sequences from the filename`, async () => {
+    const url = `http://example.com/file`;
+    const dir = `/tmp`;
+    const destination = `/tmp/passwd`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest
+          .fn()
+          .mockReturnValue(`attachment; filename="../../etc/passwd"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+    mockResolve.mockReturnValue(destination);
+    mockCreateWriteStream.mockReturnValue(`mockWriteStream`);
+    mockPipeline.mockResolvedValue(undefined);
+
+    const result = await downloadFile(url, dir);
+
+    // The traversal sequence must be reduced to its base name before resolving,
+    // so the write can never escape `dir`.
+    expect(mockBasename).toHaveBeenCalledWith(`../../etc/passwd`);
+    expect(mockResolve).toHaveBeenCalledWith(dir, `passwd`);
+    expect(result).toBe(destination);
+  });
+
+  it(`should throw when the filename reduces to an empty base name`, async () => {
+    const url = `http://example.com/file`;
+    const mockResponse = {
+      ok: true,
+      headers: {
+        get: jest.fn().mockReturnValue(`attachment; filename="../../"`),
+      },
+      body: `mockBody`,
+    };
+
+    mockFetch.mockResolvedValue(mockResponse);
+
+    await expect(downloadFile(url, `/tmp`)).rejects.toThrow(
+      `No filename in content-disposition`,
+    );
+    expect(mockCreateWriteStream).not.toHaveBeenCalled();
   });
 });
