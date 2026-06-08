@@ -1,103 +1,166 @@
-# NATS In-Memory Server
+<div align="center">
 
-[![GitHub license](https://img.shields.io/github/license/Llirik1337/nats-memory-server)](https://github.com/Llirik1337/nats-memory-server/blob/main/LICENSE)
-[![GitHub issues](https://img.shields.io/github/issues/Llirik1337/nats-memory-server)](https://github.com/Llirik1337/nats-memory-server/issues)
-[![GitHub stars](https://img.shields.io/github/stars/Llirik1337/nats-memory-server)](https://github.com/Llirik1337/nats-memory-server/stargazers)
+# 🧪 NATS In-Memory Server
 
+### Spin up a **real** [NATS](https://nats.io/) server in milliseconds — for tests, local dev, and CI.
 
-## Table of Contents
-1. [Description](#description)
-2. [Requirements](#requirements)
-3. [Installation](#installation)
-4. [Usage](#usage)
-5. [Configuration](#configuration)
-6. [API Reference](#api-reference)
-7. [NATS Jetstream](#nats-jetstream)
-8. [Testing with Jest](#testing-with-jest)
-9. [Contributing](#contributing)
-10. [License](#license)
+Like [`mongodb-memory-server`](https://github.com/typegoose/mongodb-memory-server), but for NATS.
+It downloads the official `nats-server` binary once, runs it on a random free port, and tears it
+down cleanly when you're done.
 
+[![npm version](https://img.shields.io/npm/v/nats-memory-server?color=cb3837&logo=npm)](https://www.npmjs.com/package/nats-memory-server)
+[![downloads](https://img.shields.io/npm/dm/nats-memory-server?color=cb3837&logo=npm)](https://www.npmjs.com/package/nats-memory-server)
+[![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![license](https://img.shields.io/github/license/Llirik1337/nats-memory-server?color=blue)](https://github.com/Llirik1337/nats-memory-server/blob/main/LICENSE)
+[![stars](https://img.shields.io/github/stars/Llirik1337/nats-memory-server?style=social)](https://github.com/Llirik1337/nats-memory-server/stargazers)
 
-# Description
+</div>
 
-`nats-memory-server` is a Node.js package that provides an in-memory NATS server for testing and other purposes. It allows you to quickly set up and tear down a NATS server instance within your Node.js applications, making it easier to write tests and perform other operations that require a NATS server.
+---
 
-## Requirements
+## ✨ Features
 
-- [Go](https://golang.org/) (Optional. Only if you build from source) (version 1.19 or later)
+- 🚀 **Zero config** — `create().build().start()` and you have a live server
+- 🎯 **The real thing** — runs the official `nats-server` binary, not a mock
+- 🔌 **Auto free port** — no collisions when test suites run in parallel
+- 🔒 **Checksum-verified downloads** — the binary is checked against the release `SHA256SUMS`
+- 🧰 **Fluent builder** with full **TypeScript** types
+- 🌊 **JetStream** ready
+- 🌐 **Proxy aware** — `httpProxy` / `httpsProxy` / `noProxy`
+- 🧹 **Clean teardown** — `stop()` and the process is gone
 
-## Installation
+---
 
-You can install `nats-memory-server` using npm or yarn:
+## 📦 Installation
 
 ```bash
 npm install nats-memory-server
-```
-
-or
-
-```bash
+# or
 yarn add nats-memory-server
 ```
 
-## Usage
+> The official `nats-server` binary is downloaded automatically on `postinstall`.
 
-Here is a basic example of how to start and stop the NATS server using `nats-memory-server` and connect to it using the `nats` client.
+---
+
+## ⚡ Quick Start
+
+```javascript
+const { NatsServerBuilder } = require('nats-memory-server');
+const { connect } = require('nats');
+
+// Starts on a random free port and resolves once the server is ready
+const server = await NatsServerBuilder.create().build().start();
+
+const nc = await connect({ servers: server.getUrl() });
+// ... publish / subscribe ...
+await nc.close();
+
+await server.stop();
+```
+
+---
+
+## 📖 Usage
+
+A fuller publish/subscribe round-trip:
 
 ```javascript
 const { NatsServerBuilder } = require('nats-memory-server');
 const { connect, StringCodec } = require('nats');
 
 (async () => {
-  // Start the server
-  // This will try to find a free port automatically if not specified
+  // Start the server (a free port is picked automatically if none is set)
   const server = await NatsServerBuilder.create().build().start();
-
-  const url = server.getUrl();
-  console.log(`NATS server started at ${url}`);
+  console.log(`NATS server started at ${server.getUrl()}`);
 
   try {
-    // Connect to the server
-    const nc = await connect({ servers: url });
-
-    // Example: Publish and Subscribe
+    const nc = await connect({ servers: server.getUrl() });
     const sc = StringCodec();
-    const sub = nc.subscribe("hello");
 
+    const sub = nc.subscribe('hello');
     (async () => {
       for await (const m of sub) {
         console.log(`[${sub.getProcessed()}]: ${sc.decode(m.data)}`);
       }
     })();
 
-    nc.publish("hello", sc.encode("world"));
+    nc.publish('hello', sc.encode('world'));
 
-    // Ensure all messages are processed
-    await nc.drain();
+    await nc.drain(); // flush in-flight messages, then close
   } catch (err) {
     console.error(err);
   } finally {
-    // Stop the server
     await server.stop();
   }
 })();
 ```
 
-For a runnable example, check [example.js](https://github.com/Llirik1337/nats-memory-server/blob/main/example.js).
+> 💡 Runnable version: [example.js](https://github.com/Llirik1337/nats-memory-server/blob/main/example.js).
 
-## Configuration
+---
 
-The configuration is used for two purposes:
-1. **Installation**: Determining which NATS server binary to download or build (handled during `postinstall`).
-2. **Runtime**: Configuring the server instance (port, ip, args, etc.).
+## ⚙️ Configuration
 
-You can configure the library using one of the following files:
-- `nats-memory-server.json`
-- `nats-memory-server.js`
-- `nats-memory-server.ts`
-- `package.json` (under `natsMemoryServer` key)
+Configuration drives two things:
 
-### Default Configuration
+1. **Installation** — which `nats-server` binary to download or build (during `postinstall`).
+2. **Runtime** — how the server instance behaves (`port`, `ip`, `args`, …).
+
+Provide it via any of: `nats-memory-server.json` · `nats-memory-server.js` · `nats-memory-server.ts` · the `natsMemoryServer` key in `package.json`.
+
+### Installation options
+
+| Option            | Type                          | Default                                       | Description                                                        |
+| ----------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
+| `download`        | `boolean`                     | `true`                                        | Download the binary during `postinstall`.                          |
+| `downloadDir`     | `string`                      | `node_modules/.cache/nats-memory-server`      | Where the downloaded binary is cached.                             |
+| `version`         | `string`                      | `v2.9.16`                                     | `nats-server` version to download.                                 |
+| `buildFromSource` | `boolean`                     | `false`                                       | Build from source instead of downloading (requires Go).            |
+| `binPath`         | `string`                      | *(cache path above)*                          | Path to the `nats-server` binary.                                  |
+| `httpProxy`       | `string`                      | –                                             | Proxy URL for HTTP requests.                                       |
+| `httpsProxy`      | `string`                      | –                                             | Proxy URL for HTTPS requests.                                      |
+| `noProxy`         | `string`                      | –                                             | Domains that bypass the proxy.                                     |
+| `verifyChecksum`  | `'strict' \| 'warn' \| 'off'` | `warn`                                        | Integrity-check the download against the release `SHA256SUMS`.     |
+
+> 🔒 **`verifyChecksum`** — a checksum **mismatch always aborts** the install (only `off` skips the check entirely).
+> `warn` (default) additionally just *warns* when a checksum can't be obtained (custom `downloadUrl`, `buildFromSource`,
+> or an unreachable `SHA256SUMS`); `strict` aborts in that case too.
+
+### Runtime options
+
+| Option    | Type       | Default               | Description                                                                              |
+| --------- | ---------- | --------------------- | ---------------------------------------------------------------------------------------- |
+| `port`    | `number`   | *(random free port)*  | Port to listen on.                                                                       |
+| `ip`      | `string`   | `127.0.0.1`           | Bind address. Use `0.0.0.0` to expose on all interfaces — ⚠️ the broker has no auth.     |
+| `verbose` | `boolean`  | `true`                | Verbose logging.                                                                         |
+| `args`    | `string[]` | `[]`                  | Extra arguments passed straight to `nats-server`.                                        |
+
+<details>
+<summary><b>Example config files</b></summary>
+
+`nats-memory-server.json`
+
+```json
+{
+  "version": "v2.9.16",
+  "verbose": false,
+  "port": 4222
+}
+```
+
+In `package.json`
+
+```json
+{
+  "natsMemoryServer": {
+    "version": "v2.9.16",
+    "port": 4222
+  }
+}
+```
+
+Full default configuration
 
 ```json
 {
@@ -112,112 +175,56 @@ You can configure the library using one of the following files:
 }
 ```
 
-### Configuration Options
+</details>
 
-**Installation Options:**
-- `download`: (boolean) Whether to download the binary. Default: `true`.
-- `downloadDir`: (string) Directory to download the binary to.
-- `version`: (string) NATS server version to download. Default: `v2.9.16`.
-- `buildFromSource`: (boolean) Whether to build from source instead of downloading. Default: `false`.
-- `binPath`: (string) Path to the NATS server binary.
-- `httpProxy`: (string) Proxy URL for HTTP requests.
-- `httpsProxy`: (string) Proxy URL for HTTPS requests.
-- `noProxy`: (string) Domain extensions to bypass the proxy.
-- `verifyChecksum`: (`'strict' | 'warn' | 'off'`) Verify the downloaded archive against the release's published `SHA256SUMS` before extracting/executing it. `warn` (default) aborts the install on a checksum **mismatch** but only warns when a checksum cannot be obtained (e.g. a custom `downloadUrl` or `buildFromSource`); `strict` also aborts when the checksum is unavailable; `off` disables the check. Default: `warn`.
+---
 
-**Runtime Options:**
-- `port`: (number) Port to listen on. If not specified, a free port is chosen.
-- `ip`: (string) IP address to bind to. Default: `127.0.0.1` (loopback only). Set it to `0.0.0.0` to expose the server on all network interfaces — note the broker has no authentication by default.
-- `verbose`: (boolean) Enable verbose logging. Default: `true`.
-- `args`: (string[]) Additional arguments to pass to the NATS server.
-
-### Example `nats-memory-server.json`
-
-```json
-{
-  "version": "v2.9.16",
-  "verbose": false,
-  "port": 4222
-}
-```
-
-### Configuration in `package.json`
-
-```json
-{
-  "natsMemoryServer": {
-    "version": "v2.9.16",
-    "port": 4222
-  }
-}
-```
-
-## API Reference
+## 📚 API Reference
 
 ### `NatsServerBuilder`
 
-The builder class for creating `NatsServer` instances.
+Fluent builder for `NatsServer` instances — every setter returns `this`, so calls chain.
 
-#### `static create(options?: Partial<NatsServerOptions>)`
-Creates a new `NatsServerBuilder` instance.
-
-#### `setPort(port: number): this`
-Sets the port number for the server.
-
-#### `setIp(ip: string): this`
-Sets the IP address to bind to.
-
-#### `setVerbose(verbose: boolean): this`
-Enables or disables verbose logging.
-
-#### `setArgs(args: string[]): this`
-Sets additional arguments for the NATS server executable.
-
-#### `setBinPath(binPath: string): this`
-Sets the path to the NATS server binary.
-
-#### `setLogger(logger: Logger): this`
-Sets a custom logger. The logger must implement `log`, `error`, `warn`, and `debug` methods.
-
-#### `build(): NatsServer`
-Builds and returns a `NatsServer` instance.
+| Method                                | Description                                                         |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| `static create(options?)`             | Create a new builder, optionally seeded with partial options.      |
+| `setPort(port: number)`               | Set the listen port.                                               |
+| `setIp(ip: string)`                   | Set the bind address.                                              |
+| `setVerbose(verbose: boolean)`        | Toggle verbose logging.                                            |
+| `setArgs(args: string[])`             | Set extra `nats-server` arguments.                                 |
+| `setBinPath(binPath: string)`         | Set the path to the `nats-server` binary.                          |
+| `setLogger(logger: Logger)`           | Provide a custom logger (`log`, `error`, `warn`, `debug`).         |
+| `build()`                             | Build and return a `NatsServer`.                                   |
 
 ### `NatsServer`
 
-The NATS server instance.
+| Method      | Returns         | Description                                                            |
+| ----------- | --------------- | --------------------------------------------------------------------- |
+| `start()`   | `Promise<this>` | Start the server; resolves once it is ready (rejects if it can't).    |
+| `stop()`    | `Promise<void>` | Stop the server.                                                      |
+| `getUrl()`  | `string`        | Connection URL, e.g. `nats://127.0.0.1:4222`.                         |
+| `getHost()` | `string`        | The bind host.                                                        |
+| `getPort()` | `number`        | The listen port.                                                      |
 
-#### `start(): Promise<this>`
-Starts the NATS server. Returns a promise that resolves to the server instance when ready.
+---
 
-#### `stop(): Promise<void>`
-Stops the NATS server.
+## 🌊 JetStream
 
-#### `getUrl(): string`
-Returns the connection URL (e.g., `nats://127.0.0.1:4222`).
+Enable JetStream with `setArgs` (or constructor options):
 
-#### `getHost(): string`
-Returns the host.
-
-#### `getPort(): number`
-Returns the port.
-
-## NATS Jetstream
-
-To enable JetStream, you can use `setArgs` in the builder or pass it in the constructor options.
-
-Using Builder:
 ```ts
 const os = require('os');
 const { NatsServerBuilder } = require('nats-memory-server');
 
-await NatsServerBuilder
-      .create()
-      .setArgs(['--jetstream', '--store_dir', os.tmpdir()])
-      .build()
-      .start();
+await NatsServerBuilder.create()
+  .setArgs(['--jetstream', '--store_dir', os.tmpdir()])
+  .build()
+  .start();
 ```
 
-Using Constructor:
+<details>
+<summary>Using the constructor directly</summary>
+
 ```ts
 const os = require('os');
 const { NatsServer, DEFAULT_NATS_SERVER_OPTIONS } = require('nats-memory-server');
@@ -228,10 +235,13 @@ new NatsServer({
 });
 ```
 
-## Testing with Jest
+</details>
 
-A common use case is spinning up a server once per test suite. Start it in
-`beforeAll` and tear it down in `afterAll`:
+---
+
+## 🧪 Testing with Jest
+
+Spin up one server per suite — start it in `beforeAll`, tear it down in `afterAll`:
 
 ```javascript
 const { NatsServerBuilder } = require('nats-memory-server');
@@ -251,16 +261,28 @@ afterAll(async () => {
 });
 
 test('should publish and subscribe', async () => {
-  // Your test logic here
+  // your test logic here
 });
 ```
 
-## Contributing
+---
 
-Contributions are welcome! If you find any issues or have suggestions for improvement, please feel free to open an issue or submit a pull request on the [GitHub repository](https://github.com/Llirik1337/nats-memory-server).
+## 📋 Requirements
 
-When contributing, please ensure to follow the [code of conduct](https://github.com/Llirik1337/nats-memory-server/blob/main/CODE_OF_CONDUCT.md).
+- **Node.js** ≥ 16
+- **[Go](https://golang.org/)** ≥ 1.19 — *optional*, only needed when `buildFromSource` is enabled
 
-## License
+---
 
-This project is licensed under the MIT License — see the [LICENSE](https://github.com/Llirik1337/nats-memory-server/blob/main/LICENSE) file for details.
+## 🤝 Contributing
+
+Contributions are welcome! Found a bug or have an idea? Open an
+[issue](https://github.com/Llirik1337/nats-memory-server/issues) or a pull request.
+
+Please follow the [Code of Conduct](https://github.com/Llirik1337/nats-memory-server/blob/main/CODE_OF_CONDUCT.md).
+
+---
+
+## 📄 License
+
+[MIT](https://github.com/Llirik1337/nats-memory-server/blob/main/LICENSE) © [Llirik1337](https://github.com/Llirik1337)
