@@ -32,7 +32,12 @@ export class NatsServer {
   private host!: string;
   private port!: number;
 
-  constructor(private readonly options: NatsServerOptions) {}
+  constructor(
+    private readonly options: NatsServerOptions,
+    // Injectable so the process boundary can be faked in tests; defaults to
+    // the real spawn so production callers (and the builder) are unaffected.
+    private readonly spawn: typeof child_process.spawn = child_process.spawn,
+  ) {}
 
   async start(): Promise<this> {
     const { verbose, logger } = this.options;
@@ -60,7 +65,7 @@ export class NatsServer {
     }
 
     return await new Promise((resolve, reject) => {
-      this.process = child_process.spawn(
+      this.process = this.spawn(
         binPath,
         [`--addr`, ip, `--port`, port.toString(), ...args],
         { stdio: `pipe` },
@@ -68,6 +73,12 @@ export class NatsServer {
 
       this.host = ip;
       this.port = port;
+
+      // Drain stdout so a child that writes heavily to stdout (e.g. trace
+      // output, or `--log` pointed at stdout) can't deadlock by filling the OS
+      // pipe buffer while we wait for the readiness line on stderr. We don't
+      // need stdout's contents, so just let it flow and discard.
+      this.process.stdout.resume();
 
       let isReady = false;
 

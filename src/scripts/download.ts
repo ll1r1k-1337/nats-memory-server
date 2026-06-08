@@ -13,11 +13,11 @@ import {
   withRetry,
 } from '../utils';
 
-process.nextTick(async function () {
+async function downloadNatsServer(): Promise<void> {
   const projectPath = getProjectPath();
   const config = await getProjectConfig(projectPath);
 
-  let { downloadDir, download } = config;
+  const { downloadDir, download } = config;
 
   const natsServerNotDownload = !fs.existsSync(downloadDir);
 
@@ -80,4 +80,16 @@ process.nextTick(async function () {
       },
     );
   }
+}
+
+process.nextTick(() => {
+  downloadNatsServer().catch((error: unknown) => {
+    // Surface a clean message and a deterministic non-zero exit so a failed
+    // download fails `npm install` loudly instead of as an unhandled rejection.
+    console.error(
+      `Failed to download the NATS server binary:`,
+      error instanceof Error ? error.message : error,
+    );
+    process.exit(1);
+  });
 });
