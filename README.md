@@ -8,6 +8,7 @@ Like [`mongodb-memory-server`](https://github.com/typegoose/mongodb-memory-serve
 It downloads the official `nats-server` binary once, runs it on a random free port, and tears it
 down cleanly when you're done.
 
+[![tests](https://img.shields.io/github/actions/workflow/status/ll1r1k-1337/nats-memory-server/test.yml?branch=main&logo=github&label=tests)](https://github.com/ll1r1k-1337/nats-memory-server/actions/workflows/test.yml)
 [![npm version](https://img.shields.io/npm/v/nats-memory-server?color=cb3837&logo=npm)](https://www.npmjs.com/package/nats-memory-server)
 [![downloads](https://img.shields.io/npm/dm/nats-memory-server?color=cb3837&logo=npm)](https://www.npmjs.com/package/nats-memory-server)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
