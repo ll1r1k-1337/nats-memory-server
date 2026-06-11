@@ -1,3 +1,4 @@
+import child_process from 'child_process';
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
 import { PassThrough, Readable } from 'stream';
@@ -228,24 +229,32 @@ describe(NatsServer.name, () => {
   });
 
   it(`Should drain stdout so a flood on stdout can't deadlock readiness on stderr`, async () => {
-    const spawn = jest.fn(() =>
-      makeFloodingChild(),
-    ) as unknown as ConstructorParameters<typeof NatsServer>[1];
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeFloodingChild());
 
-    const server = new NatsServer(
-      {
+    try {
+      const server = new NatsServer({
         ...DEFAULT_NATS_SERVER_OPTIONS,
         verbose: false,
         port: 4222,
         binPath: `fake-nats-server`,
-      },
-      spawn,
-    );
+      });
 
-    await expect(
-      withTimeout(server.start(), 3000, `start() with flooded stdout`),
-    ).resolves.toBe(server);
+      await expect(
+        withTimeout(server.start(), 3000, `start() with flooded stdout`),
+      ).resolves.toBe(server);
 
-    await server.stop();
+      expect(spawnSpy).toHaveBeenCalledTimes(1);
+      expect(spawnSpy).toHaveBeenCalledWith(
+        `fake-nats-server`,
+        [`--addr`, `127.0.0.1`, `--port`, `4222`],
+        { stdio: `pipe` },
+      );
+
+      await server.stop();
+    } finally {
+      spawnSpy.mockRestore();
+    }
   });
 });

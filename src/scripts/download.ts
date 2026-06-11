@@ -12,6 +12,7 @@ import {
   verifyChecksum,
   withRetry,
 } from '../utils';
+import { runInstallStep } from './run-install-step';
 
 async function downloadNatsServer(): Promise<void> {
   const projectPath = getProjectPath();
@@ -82,14 +83,7 @@ async function downloadNatsServer(): Promise<void> {
   }
 }
 
-process.nextTick(() => {
-  downloadNatsServer().catch((error: unknown) => {
-    // Surface a clean message and a deterministic non-zero exit so a failed
-    // download fails `npm install` loudly instead of as an unhandled rejection.
-    console.error(
-      `Failed to download the NATS server binary:`,
-      error instanceof Error ? error.message : error,
-    );
-    process.exit(1);
-  });
-});
+runInstallStep(
+  downloadNatsServer,
+  `Failed to download the NATS server binary`,
+);
