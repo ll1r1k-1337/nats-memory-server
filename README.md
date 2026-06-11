@@ -150,6 +150,15 @@ Provide it via any of: `nats-memory-server.json` · `nats-memory-server.js` · `
 }
 ```
 
+`nats-memory-server.ts` (or `.js` — both `export default` and `module.exports` work)
+
+```ts
+export default {
+  version: `v2.9.16`,
+  port: 4222,
+};
+```
+
 In `package.json`
 
 ```json
