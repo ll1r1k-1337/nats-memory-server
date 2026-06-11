@@ -12,12 +12,13 @@ import {
   verifyChecksum,
   withRetry,
 } from '../utils';
+import { runInstallStep } from './run-install-step';
 
-process.nextTick(async function () {
+async function downloadNatsServer(): Promise<void> {
   const projectPath = getProjectPath();
   const config = await getProjectConfig(projectPath);
 
-  let { downloadDir, download } = config;
+  const { downloadDir, download } = config;
 
   const natsServerNotDownload = !fs.existsSync(downloadDir);
 
@@ -80,4 +81,9 @@ process.nextTick(async function () {
       },
     );
   }
-});
+}
+
+runInstallStep(
+  downloadNatsServer,
+  `Failed to download the NATS server binary`,
+);

@@ -1,7 +1,53 @@
-import { NatsServer } from './nats-server';
+import child_process from 'child_process';
+import type { ChildProcessWithoutNullStreams } from 'child_process';
+import { EventEmitter } from 'events';
+import { PassThrough, Readable } from 'stream';
+import { DEFAULT_NATS_SERVER_OPTIONS, NatsServer } from './nats-server';
 import { NatsServerBuilder } from './nats-server.builder';
 import { getFreePort } from './utils';
 import { connect, StringCodec } from 'nats';
+
+/**
+ * A fake child process whose stdout is pre-loaded with more than one OS pipe
+ * buffer of data. The readiness line is written to stderr ONLY after stdout has
+ * been fully consumed — modelling a real child that blocks on a full stdout
+ * pipe until the parent drains it. If start() never reads stdout, readiness is
+ * never reached and start() hangs.
+ */
+function makeFloodingChild(): ChildProcessWithoutNullStreams {
+  const child = new EventEmitter() as unknown as ChildProcessWithoutNullStreams;
+  const stdout = new Readable({
+    read() {
+      // Data is pushed eagerly below; nothing to produce on demand.
+    },
+  });
+  const stderr = new PassThrough();
+
+  Object.assign(child, {
+    stdout,
+    stderr,
+    exitCode: null,
+    signalCode: null,
+    unref: () => {
+      // no-op: the fake child does not keep the event loop alive.
+    },
+    kill: () => {
+      Object.assign(child, { exitCode: 0 });
+      stdout.destroy();
+      stderr.end();
+      queueMicrotask(() => child.emit(`close`, 0, null));
+      return true;
+    },
+  });
+
+  stdout.push(Buffer.alloc(256 * 1024, 0x2e));
+  stdout.push(null);
+  stdout.once(`end`, () => {
+    stderr.write(`[INF] Server is ready\n`);
+  });
+
+  return child;
+}
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -180,5 +226,35 @@ describe(NatsServer.name, () => {
     const server = NatsServerBuilder.create({ binPath: undefined }).build();
 
     await expect(server.start()).rejects.toThrow(/binPath/);
+  });
+
+  it(`Should drain stdout so a flood on stdout can't deadlock readiness on stderr`, async () => {
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeFloodingChild());
+
+    try {
+      const server = new NatsServer({
+        ...DEFAULT_NATS_SERVER_OPTIONS,
+        verbose: false,
+        port: 4222,
+        binPath: `fake-nats-server`,
+      });
+
+      await expect(
+        withTimeout(server.start(), 3000, `start() with flooded stdout`),
+      ).resolves.toBe(server);
+
+      expect(spawnSpy).toHaveBeenCalledTimes(1);
+      expect(spawnSpy).toHaveBeenCalledWith(
+        `fake-nats-server`,
+        [`--addr`, `127.0.0.1`, `--port`, `4222`],
+        { stdio: `pipe` },
+      );
+
+      await server.stop();
+    } finally {
+      spawnSpy.mockRestore();
+    }
   });
 });

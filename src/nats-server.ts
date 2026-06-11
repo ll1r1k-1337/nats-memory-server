@@ -69,6 +69,13 @@ export class NatsServer {
       this.host = ip;
       this.port = port;
 
+      // Drain stdout so a child that writes heavily to stdout (e.g. `--log
+      // /dev/stdout`) can't deadlock by filling the OS pipe buffer while we
+      // wait for the readiness line on stderr. nats-server itself logs to
+      // stderr, but we don't control what a custom binPath prints. We don't
+      // need stdout's contents, so just let it flow and discard.
+      this.process.stdout.resume();
+
       let isReady = false;
 
       this.process.once(`error`, (err) => {

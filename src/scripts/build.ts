@@ -1,14 +1,13 @@
 import fs from 'fs';
 import child_process from 'child_process';
 import { getProjectConfig, getProjectPath } from '../utils';
+import { runInstallStep } from './run-install-step';
 
-process.nextTick(async function () {
+async function buildNatsServer(): Promise<void> {
   const projectPath = getProjectPath();
   const config = await getProjectConfig(projectPath);
 
-  const { buildFromSource } = config;
-
-  let { downloadDir, binPath } = config;
+  const { buildFromSource, downloadDir, binPath } = config;
 
   const natsServerNotBuilded = !fs.existsSync(binPath);
 
@@ -18,16 +17,13 @@ process.nextTick(async function () {
 
   if (natsServerNotBuilded) {
     console.log(`Build sources NATS server`);
-    return new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const goBuild = child_process.spawn(`go`, [`build`], {
         cwd: downloadDir,
         stdio: `pipe`,
       });
 
-      goBuild.unref();
-
       goBuild.once(`error`, (err) => {
-        console.log(err);
         goBuild.kill();
         reject(err);
       });
@@ -42,15 +38,26 @@ process.nextTick(async function () {
         console.log(data.toString());
       });
 
-      goBuild.on(`close`, (code) => {
-        console.log(`NATS server was builded successful!`);
-
+      goBuild.on(`close`, (code, signal) => {
+        // Only report success once we know the build actually succeeded, and
+        // reject with a real Error (a bare reject() surfaces as `undefined`,
+        // which is useless when the install fails). `code` is null exactly
+        // when the child was terminated by a signal, so name the signal then.
         if (code === 0) {
+          console.log(`NATS server was builded successful!`);
           resolve();
         } else {
-          reject();
+          reject(
+            new Error(
+              code === null
+                ? `go build was terminated by signal ${signal ?? `unknown`}`
+                : `go build exited with a non-zero code (${code})`,
+            ),
+          );
         }
       });
     });
   }
-});
+}
+
+runInstallStep(buildNatsServer, `Failed to build the NATS server from source`);
