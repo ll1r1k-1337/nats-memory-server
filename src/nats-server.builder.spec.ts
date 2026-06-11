@@ -1,11 +1,12 @@
 import { NatsServerBuilder } from './nats-server.builder';
-import { DEFAULT_NATS_SERVER_OPTIONS } from './nats-server';
 
 describe(NatsServerBuilder.name, () => {
-  it(`Should create builder with default options`, () => {
+  it(`Should keep options empty when nothing is set (defaults are resolved at start())`, () => {
+    // Baking DEFAULT_NATS_SERVER_OPTIONS in at build time would make every
+    // option look explicitly set, so a project config file could never win.
     const builder = NatsServerBuilder.create();
     const server = builder.build();
-    expect((server as any).options).toEqual(DEFAULT_NATS_SERVER_OPTIONS);
+    expect((server as any).options).toEqual({});
   });
 
   it(`Should set custom options via create`, () => {

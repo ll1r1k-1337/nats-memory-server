@@ -112,30 +112,34 @@ Provide it via any of: `nats-memory-server.json` · `nats-memory-server.js` · `
 
 ### Installation options
 
-| Option            | Type                          | Default                                       | Description                                                        |
-| ----------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
-| `download`        | `boolean`                     | `true`                                        | Download the binary during `postinstall`.                          |
-| `downloadDir`     | `string`                      | `node_modules/.cache/nats-memory-server`      | Where the downloaded binary is cached.                             |
-| `version`         | `string`                      | `v2.9.16`                                     | `nats-server` version to download.                                 |
-| `buildFromSource` | `boolean`                     | `false`                                       | Build from source instead of downloading (requires Go).            |
-| `binPath`         | `string`                      | *(cache path above)*                          | Path to the `nats-server` binary.                                  |
-| `httpProxy`       | `string`                      | –                                             | Proxy URL for HTTP requests.                                       |
-| `httpsProxy`      | `string`                      | –                                             | Proxy URL for HTTPS requests.                                      |
-| `noProxy`         | `string`                      | –                                             | Domains that bypass the proxy.                                     |
-| `verifyChecksum`  | `'strict' \| 'warn' \| 'off'` | `warn`                                        | Integrity-check the download against the release `SHA256SUMS`.     |
+| Option            | Type                          | Default                                  | Description                                                    |
+| ----------------- | ----------------------------- | ---------------------------------------- | -------------------------------------------------------------- |
+| `download`        | `boolean`                     | `true`                                   | Download the binary during `postinstall`.                      |
+| `downloadDir`     | `string`                      | `node_modules/.cache/nats-memory-server` | Where the downloaded binary is cached.                         |
+| `version`         | `string`                      | `v2.9.16`                                | `nats-server` version to download.                             |
+| `buildFromSource` | `boolean`                     | `false`                                  | Build from source instead of downloading (requires Go).        |
+| `binPath`         | `string`                      | _(cache path above)_                     | Path to the `nats-server` binary.                              |
+| `httpProxy`       | `string`                      | –                                        | Proxy URL for HTTP requests.                                   |
+| `httpsProxy`      | `string`                      | –                                        | Proxy URL for HTTPS requests.                                  |
+| `noProxy`         | `string`                      | –                                        | Domains that bypass the proxy.                                 |
+| `verifyChecksum`  | `'strict' \| 'warn' \| 'off'` | `warn`                                   | Integrity-check the download against the release `SHA256SUMS`. |
 
 > 🔒 **`verifyChecksum`** — a checksum **mismatch always aborts** the install (only `off` skips the check entirely).
-> `warn` (default) additionally just *warns* when a checksum can't be obtained (custom `downloadUrl`, `buildFromSource`,
+> `warn` (default) additionally just _warns_ when a checksum can't be obtained (custom `downloadUrl`, `buildFromSource`,
 > or an unreachable `SHA256SUMS`); `strict` aborts in that case too.
 
 ### Runtime options
 
-| Option    | Type       | Default               | Description                                                                              |
-| --------- | ---------- | --------------------- | ---------------------------------------------------------------------------------------- |
-| `port`    | `number`   | *(random free port)*  | Port to listen on.                                                                       |
-| `ip`      | `string`   | `127.0.0.1`           | Bind address. Use `0.0.0.0` to expose on all interfaces — ⚠️ the broker has no auth.     |
-| `verbose` | `boolean`  | `true`                | Verbose logging.                                                                         |
-| `args`    | `string[]` | `[]`                  | Extra arguments passed straight to `nats-server`.                                        |
+| Option    | Type       | Default              | Description                                                                          |
+| --------- | ---------- | -------------------- | ------------------------------------------------------------------------------------ |
+| `port`    | `number`   | _(random free port)_ | Port to listen on.                                                                   |
+| `ip`      | `string`   | `127.0.0.1`          | Bind address. Use `0.0.0.0` to expose on all interfaces — ⚠️ the broker has no auth. |
+| `verbose` | `boolean`  | `true`               | Verbose logging.                                                                     |
+| `args`    | `string[]` | `[]`                 | Extra arguments passed straight to `nats-server`.                                    |
+
+Runtime options can also be set in code, via [`NatsServerBuilder`](#natsserverbuilder) setters or the `NatsServer`
+constructor. Precedence (highest first): **options set explicitly in code → config file → built-in defaults**.
+A custom `logger` can only be provided in code.
 
 <details>
 <summary><b>Example config files</b></summary>
@@ -172,9 +176,12 @@ Full default configuration
   "binPath": "node_modules/.cache/nats-memory-server/nats-server",
   "verifyChecksum": "warn",
   "verbose": true,
-  "ip": "127.0.0.1"
+  "ip": "127.0.0.1",
+  "args": []
 }
 ```
+
+(`port` has no fixed default — a random free port is picked at start.)
 
 </details>
 
@@ -186,26 +193,26 @@ Full default configuration
 
 Fluent builder for `NatsServer` instances — every setter returns `this`, so calls chain.
 
-| Method                                | Description                                                         |
-| ------------------------------------- | ------------------------------------------------------------------ |
-| `static create(options?)`             | Create a new builder, optionally seeded with partial options.      |
-| `setPort(port: number)`               | Set the listen port.                                               |
-| `setIp(ip: string)`                   | Set the bind address.                                              |
-| `setVerbose(verbose: boolean)`        | Toggle verbose logging.                                            |
-| `setArgs(args: string[])`             | Set extra `nats-server` arguments.                                 |
-| `setBinPath(binPath: string)`         | Set the path to the `nats-server` binary.                          |
-| `setLogger(logger: Logger)`           | Provide a custom logger (`log`, `error`, `warn`, `debug`).         |
-| `build()`                             | Build and return a `NatsServer`.                                   |
+| Method                         | Description                                                   |
+| ------------------------------ | ------------------------------------------------------------- |
+| `static create(options?)`      | Create a new builder, optionally seeded with partial options. |
+| `setPort(port: number)`        | Set the listen port.                                          |
+| `setIp(ip: string)`            | Set the bind address.                                         |
+| `setVerbose(verbose: boolean)` | Toggle verbose logging.                                       |
+| `setArgs(args: string[])`      | Set extra `nats-server` arguments.                            |
+| `setBinPath(binPath: string)`  | Set the path to the `nats-server` binary.                     |
+| `setLogger(logger: Logger)`    | Provide a custom logger (`log`, `error`, `warn`, `debug`).    |
+| `build()`                      | Build and return a `NatsServer`.                              |
 
 ### `NatsServer`
 
-| Method      | Returns         | Description                                                            |
-| ----------- | --------------- | --------------------------------------------------------------------- |
-| `start()`   | `Promise<this>` | Start the server; resolves once it is ready (rejects if it can't).    |
-| `stop()`    | `Promise<void>` | Stop the server.                                                      |
-| `getUrl()`  | `string`        | Connection URL, e.g. `nats://127.0.0.1:4222`.                         |
-| `getHost()` | `string`        | The bind host.                                                        |
-| `getPort()` | `number`        | The listen port.                                                      |
+| Method      | Returns         | Description                                                        |
+| ----------- | --------------- | ------------------------------------------------------------------ |
+| `start()`   | `Promise<this>` | Start the server; resolves once it is ready (rejects if it can't). |
+| `stop()`    | `Promise<void>` | Stop the server.                                                   |
+| `getUrl()`  | `string`        | Connection URL, e.g. `nats://127.0.0.1:4222`.                      |
+| `getHost()` | `string`        | The bind host.                                                     |
+| `getPort()` | `number`        | The listen port.                                                   |
 
 ---
 
@@ -228,10 +235,11 @@ await NatsServerBuilder.create()
 
 ```ts
 const os = require('os');
-const { NatsServer, DEFAULT_NATS_SERVER_OPTIONS } = require('nats-memory-server');
+const { NatsServer } = require('nats-memory-server');
 
+// Options are partial: anything you don't set comes from your config file
+// or the built-in defaults.
 new NatsServer({
-  ...DEFAULT_NATS_SERVER_OPTIONS,
   args: ['--jetstream', '--store_dir', os.tmpdir()],
 });
 ```
@@ -271,7 +279,7 @@ test('should publish and subscribe', async () => {
 ## 📋 Requirements
 
 - **Node.js** ≥ 16
-- **[Go](https://golang.org/)** ≥ 1.19 — *optional*, only needed when `buildFromSource` is enabled
+- **[Go](https://golang.org/)** ≥ 1.19 — _optional_, only needed when `buildFromSource` is enabled
 
 ---
 
