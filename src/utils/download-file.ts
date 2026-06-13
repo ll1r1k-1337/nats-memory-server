@@ -11,14 +11,20 @@ export interface DownloadFileOptions {
   noProxy?: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildFetchOptions(url: string, options: DownloadFileOptions): any {
+interface FetchProxyOptions {
+  proxy?: string;
+  noProxy?: string;
+}
+
+function buildFetchOptions(
+  url: string,
+  options: DownloadFileOptions,
+): FetchProxyOptions {
   const proxy = url.startsWith(`https:`)
     ? options.httpsProxy
     : options.httpProxy;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fetchOptions: any = {};
+  const fetchOptions: FetchProxyOptions = {};
 
   if (proxy != null) {
     fetchOptions.proxy = proxy;

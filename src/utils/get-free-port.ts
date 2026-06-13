@@ -1,11 +1,12 @@
-import net from 'net';
+import net, { type AddressInfo } from 'net';
 
 export async function getFreePort(): Promise<number> {
   return await new Promise<number>((resolve) => {
     const srv = net.createServer();
     srv.listen(0, () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const port = (srv.address() as any).port;
+      // listen(0) always yields a bound TCP socket, so address() is an
+      // AddressInfo (never a string pipe path or null) here.
+      const { port } = srv.address() as AddressInfo;
       srv.close(() => {
         resolve(port);
       });

@@ -19,6 +19,10 @@ async function downloadNatsServer(): Promise<void> {
   }
 }
 
-runInstallStep(downloadNatsServer, `Failed to download the NATS server binary`, {
-  optional: true,
-});
+runInstallStep(
+  downloadNatsServer,
+  `Failed to download the NATS server binary`,
+  {
+    optional: true,
+  },
+);

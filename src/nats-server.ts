@@ -169,7 +169,6 @@ export class NatsServer {
             dataStr = data.toString();
           }
         } else {
-          // eslint-disable-next-line @typescript-eslint/no-base-to-string
           dataStr = data?.toString();
         }
 

@@ -9,11 +9,9 @@ const allowedExtensions = [`.ts`, `.js`, `.json`] as const;
 
 const readFileMap = {
   '.ts': (filePath: string) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let tsNode: any;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/quotes
-      tsNode = require('ts-node');
+      tsNode = require(`ts-node`);
     } catch {
       throw new Error(`ts-node is not installed`);
     }
@@ -23,24 +21,19 @@ const readFileMap = {
   },
   '.js': (filePath: string) => require(filePath),
   '.json': (filePath: string) => JSON.parse(fs.readFileSync(filePath, `utf8`)),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } satisfies Record<(typeof allowedExtensions)[number], (path: string) => any>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function readFile(filePath: string): any {
   const ext = path.extname(filePath).toLowerCase();
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-expect-error
+  // @ts-expect-error indexing by an arbitrary extension is intentional here
   return readFileMap[ext](filePath);
 }
 
 const readFileAsyncMap = {
   '.ts': async (filePath: string) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let tsNode: any;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/quotes
-      tsNode = require('ts-node');
+      tsNode = require(`ts-node`);
     } catch {
       throw new Error(`ts-node is not installed`);
     }
@@ -53,15 +46,12 @@ const readFileAsyncMap = {
     JSON.parse(await fsPromises.readFile(filePath, `utf8`)),
 } satisfies Record<
   (typeof allowedExtensions)[number],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (path: string) => Promise<any>
 >;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function readFileAsync(filePath: string): Promise<any> {
   const ext = path.extname(filePath).toLowerCase();
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-expect-error
+  // @ts-expect-error indexing by an arbitrary extension is intentional here
   return readFileAsyncMap[ext](filePath);
 }
 

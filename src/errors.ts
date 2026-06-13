@@ -21,7 +21,10 @@ export class NatsMemoryServerError extends Error {
  * resolved at all.
  */
 export class BinaryNotFoundError extends NatsMemoryServerError {
-  constructor(message: string, public readonly binPath?: string) {
+  constructor(
+    message: string,
+    public readonly binPath?: string,
+  ) {
     super(message);
     this.name = `BinaryNotFoundError`;
   }
@@ -63,7 +66,10 @@ export class NatsServerStartError extends NatsMemoryServerError {
  * `start()` gave up and terminated the (possibly hung) process.
  */
 export class NatsServerTimeoutError extends NatsMemoryServerError {
-  constructor(message: string, public readonly timeoutMs: number) {
+  constructor(
+    message: string,
+    public readonly timeoutMs: number,
+  ) {
     super(message);
     this.name = `NatsServerTimeoutError`;
   }
