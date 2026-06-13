@@ -5,6 +5,7 @@ import { PassThrough, Readable } from 'stream';
 import { DEFAULT_NATS_SERVER_OPTIONS, NatsServer } from './nats-server';
 import { NatsServerBuilder } from './nats-server.builder';
 import { getFreePort } from './utils';
+import { NatsServerStartError, NatsServerTimeoutError } from './errors';
 import { connect, StringCodec } from 'nats';
 
 /**
@@ -44,6 +45,36 @@ function makeFloodingChild(): ChildProcessWithoutNullStreams {
   stdout.push(null);
   stdout.once(`end`, () => {
     stderr.write(`[INF] Server is ready\n`);
+  });
+
+  return child;
+}
+
+/**
+ * A fake child that spawns fine but NEVER emits the readiness line — modelling a
+ * hung or incompatible binary. kill() flips the exit state and emits `close`, so
+ * the startup-timeout path can tear it down cleanly.
+ */
+function makeSilentChild(): ChildProcessWithoutNullStreams {
+  const child = new EventEmitter() as unknown as ChildProcessWithoutNullStreams;
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+
+  Object.assign(child, {
+    stdout,
+    stderr,
+    exitCode: null,
+    signalCode: null,
+    unref: () => {
+      // no-op: the fake child does not keep the event loop alive.
+    },
+    kill: () => {
+      Object.assign(child, { exitCode: null, signalCode: `SIGTERM` });
+      stdout.end();
+      stderr.end();
+      queueMicrotask(() => child.emit(`close`, null, `SIGTERM`));
+      return true;
+    },
   });
 
   return child;
@@ -226,6 +257,52 @@ describe(NatsServer.name, () => {
     const server = NatsServerBuilder.create({ binPath: undefined }).build();
 
     await expect(server.start()).rejects.toThrow(/binPath/);
+  });
+
+  it(`Should reject start() with NatsServerStartError when the server exits before ready`, async () => {
+    const ip = `127.0.0.1`;
+    const port = await getFreePort();
+
+    const blocker = await NatsServerBuilder.create()
+      .setIp(ip)
+      .setPort(port)
+      .setVerbose(false)
+      .build()
+      .start();
+
+    try {
+      const second = NatsServerBuilder.create()
+        .setIp(ip)
+        .setPort(port)
+        .setVerbose(false)
+        .build();
+
+      await expect(second.start()).rejects.toBeInstanceOf(NatsServerStartError);
+    } finally {
+      await blocker.stop();
+    }
+  });
+
+  it(`Should reject start() with NatsServerTimeoutError when readiness never arrives`, async () => {
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = new NatsServer({
+        ...DEFAULT_NATS_SERVER_OPTIONS,
+        verbose: false,
+        port: 4222,
+        binPath: `fake-nats-server`,
+        startupTimeoutMs: 50,
+      });
+
+      await expect(
+        withTimeout(server.start(), 3000, `start() with startup timeout`),
+      ).rejects.toBeInstanceOf(NatsServerTimeoutError);
+    } finally {
+      spawnSpy.mockRestore();
+    }
   });
 
   it(`Should drain stdout so a flood on stdout can't deadlock readiness on stderr`, async () => {

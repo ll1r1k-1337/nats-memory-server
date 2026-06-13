@@ -1,5 +1,6 @@
 import child_process from 'child_process';
 import { getFreePort, getProjectConfig, getProjectPath } from './utils';
+import { NatsServerStartError, NatsServerTimeoutError } from './errors';
 export interface Logger {
   log: (message: string, ...args: unknown[]) => void;
   error: (message: string, ...args: unknown[]) => void;
@@ -14,6 +15,13 @@ export interface NatsServerOptions {
   ip: string;
   logger: Logger;
   binPath?: string;
+  /**
+   * Milliseconds to wait for the server to signal readiness before `start()`
+   * gives up, kills the process, and rejects with a {@link NatsServerTimeoutError}.
+   * `0` (or a negative value) disables the timeout. Note: this bounds only the
+   * spawn-to-ready window, not a one-off lazy binary download.
+   */
+  startupTimeoutMs?: number;
 }
 
 export const DEFAULT_NATS_SERVER_OPTIONS = {
@@ -24,6 +32,7 @@ export const DEFAULT_NATS_SERVER_OPTIONS = {
   ip: `127.0.0.1`,
   args: [],
   logger: console,
+  startupTimeoutMs: 30_000,
 } satisfies NatsServerOptions;
 
 export class NatsServer {
@@ -53,7 +62,13 @@ export class NatsServer {
     const projectConfig = await getProjectConfig(getProjectPath());
 
     const config = { ...projectConfig, ...this.options };
-    const { args, ip, port = await getFreePort(), binPath } = config;
+    const {
+      args,
+      ip,
+      port = await getFreePort(),
+      binPath,
+      startupTimeoutMs = DEFAULT_NATS_SERVER_OPTIONS.startupTimeoutMs,
+    } = config;
 
     if (binPath == null) {
       throw new Error(`Could not resolve a binPath for the NATS server binary`);
@@ -69,14 +84,46 @@ export class NatsServer {
       this.host = ip;
       this.port = port;
 
+      let isReady = false;
+
+      // Bound the spawn-to-ready window: a binary that never prints the
+      // readiness line (a hang, a wrong/incompatible binary, a silent failure)
+      // would otherwise leave start() pending forever. On fire we tear the
+      // process down and reject; the timer is cleared in every settle path
+      // below. unref() so a pending timer never keeps the event loop alive.
+      let startupTimer: NodeJS.Timeout | undefined;
+      const clearStartupTimer = (): void => {
+        if (startupTimer !== undefined) {
+          clearTimeout(startupTimer);
+          startupTimer = undefined;
+        }
+      };
+
+      if (startupTimeoutMs > 0) {
+        startupTimer = setTimeout(() => {
+          if (isReady) {
+            return;
+          }
+
+          const message = `NATS server did not become ready within ${startupTimeoutMs}ms`;
+
+          if (verbose) {
+            logger.warn(message);
+          }
+
+          this.process?.kill();
+          this.process = undefined;
+          reject(new NatsServerTimeoutError(message, startupTimeoutMs));
+        }, startupTimeoutMs);
+        startupTimer.unref();
+      }
+
       // Drain stdout so a child that writes heavily to stdout (e.g. `--log
       // /dev/stdout`) can't deadlock by filling the OS pipe buffer while we
       // wait for the readiness line on stderr. nats-server itself logs to
       // stderr, but we don't control what a custom binPath prints. We don't
       // need stdout's contents, so just let it flow and discard.
       this.process.stdout.resume();
-
-      let isReady = false;
 
       this.process.once(`error`, (err) => {
         if (verbose) {
@@ -86,8 +133,13 @@ export class NatsServer {
         // Only fail the start Promise if we never became ready; a transient
         // error after readiness must not tear down a running server's handle.
         if (!isReady) {
+          clearStartupTimer();
           this.process = undefined;
-          reject(err);
+          reject(
+            new NatsServerStartError(
+              `NATS server failed to start: ${err.message}`,
+            ),
+          );
         }
       });
 
@@ -121,6 +173,7 @@ export class NatsServer {
 
           if (ready) {
             isReady = true;
+            clearStartupTimer();
             if (verbose) {
               logger.log(`NATS server is ready!`);
             }
@@ -145,6 +198,8 @@ export class NatsServer {
         // After readiness the start Promise is already settled, so this branch
         // is a no-op for the normal shutdown path.
         if (!isReady) {
+          clearStartupTimer();
+
           const message = `NATS server exited before becoming ready${
             code !== null ? ` (exit code: ${code})` : ``
           }`;
@@ -153,7 +208,7 @@ export class NatsServer {
             logger.warn(message, code);
           }
 
-          reject(new Error(message));
+          reject(new NatsServerStartError(message, code));
         }
       });
     });

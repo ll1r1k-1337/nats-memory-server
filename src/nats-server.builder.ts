@@ -48,6 +48,11 @@ export class NatsServerBuilder {
     return this;
   }
 
+  setStartupTimeoutMs(startupTimeoutMs: number): this {
+    this.options = { ...this.options, startupTimeoutMs };
+    return this;
+  }
+
   build(): NatsServer {
     const server = new NatsServer(this.options);
     return server;

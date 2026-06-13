@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { createReadStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { type DownloadFileOptions } from './download-file';
+import { ChecksumMismatchError } from '../errors';
 
 export type ChecksumMode = `strict` | `warn` | `off`;
 
@@ -137,9 +138,12 @@ export async function verifyChecksum(
   const actual = await sha256OfFile(filePath);
 
   if (actual !== expected) {
-    throw new Error(
+    throw new ChecksumMismatchError(
       `Checksum mismatch for ${derived.assetName}: expected ${expected}, got ${actual}. ` +
         `The download may be corrupted or tampered with; refusing to use it.`,
+      derived.assetName,
+      expected,
+      actual,
     );
   }
 }
