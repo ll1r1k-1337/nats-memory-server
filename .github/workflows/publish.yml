@@ -10,16 +10,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # required for the GITHUB_TOKEN to create a Release
+      id-token: write # required for npm provenance (OIDC)
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 20
           registry-url: 'https://registry.npmjs.org/'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -27,8 +29,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Download NATS server
-        run: npm run postinstall
+      - name: Prefetch NATS server
+        run: npm run prefetch
+        env:
+          NATS_MEMORY_SERVER_STRICT_INSTALL: '1'
 
       - name: Lint
         run: npm run lint
@@ -38,7 +42,7 @@ jobs:
 
       - name: Publish
         if: ${{ success() }}
-        run: npm publish
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

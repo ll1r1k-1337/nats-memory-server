@@ -1,22 +1,30 @@
 name: Test
 
 on:
-    push:
-      branches: [ '**' ]
-    pull_request:
-      branches: [ '**' ]
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Run every leg to completion: the binary is platform-specific, so one
+      # OS/Node failure should not mask the others.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [18, 20, 22]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Use Node.js
-        uses: actions/setup-node@v3
+      - name: Use Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: ${{ matrix.node }}
+          cache: npm
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -24,8 +32,12 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Download NATS server
-        run: npm run postinstall
+      # Download the binary in a dedicated, strict step so a download problem is
+      # attributed clearly instead of surfacing as an opaque test failure.
+      - name: Prefetch NATS server
+        run: npm run prefetch
+        env:
+          NATS_MEMORY_SERVER_STRICT_INSTALL: '1'
 
       - name: Lint
         run: npm run lint

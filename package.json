@@ -29,6 +29,7 @@
   "scripts": {
     "build": "tsc -p ./tsconfig.build.json",
     "prepublishOnly": "npm run build",
+    "prefetch": "node ./dist/scripts/download.js && node ./dist/scripts/build.js",
     "postinstall": "node ./dist/scripts/download.js && node ./dist/scripts/build.js",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
