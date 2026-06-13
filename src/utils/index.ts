@@ -7,3 +7,4 @@ export * from './get-arch';
 export * from './get-project-config';
 export * from './with-retry';
 export * from './verify-checksum';
+export * from './ensure-binary';

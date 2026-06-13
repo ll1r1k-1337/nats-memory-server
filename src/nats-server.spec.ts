@@ -5,6 +5,7 @@ import { PassThrough, Readable } from 'stream';
 import { DEFAULT_NATS_SERVER_OPTIONS, NatsServer } from './nats-server';
 import { NatsServerBuilder } from './nats-server.builder';
 import { getFreePort } from './utils';
+import * as ensureBinaryModule from './utils/ensure-binary';
 import { NatsServerStartError, NatsServerTimeoutError } from './errors';
 import { connect, StringCodec } from 'nats';
 
@@ -287,6 +288,9 @@ describe(NatsServer.name, () => {
     const spawnSpy = jest
       .spyOn(child_process, `spawn`)
       .mockImplementation(() => makeSilentChild());
+    const ensureSpy = jest
+      .spyOn(ensureBinaryModule, `ensureBinary`)
+      .mockResolvedValue(`fake-nats-server`);
 
     try {
       const server = new NatsServer({
@@ -302,6 +306,7 @@ describe(NatsServer.name, () => {
       ).rejects.toBeInstanceOf(NatsServerTimeoutError);
     } finally {
       spawnSpy.mockRestore();
+      ensureSpy.mockRestore();
     }
   });
 
@@ -309,6 +314,9 @@ describe(NatsServer.name, () => {
     const spawnSpy = jest
       .spyOn(child_process, `spawn`)
       .mockImplementation(() => makeFloodingChild());
+    const ensureSpy = jest
+      .spyOn(ensureBinaryModule, `ensureBinary`)
+      .mockResolvedValue(`fake-nats-server`);
 
     try {
       const server = new NatsServer({
@@ -332,6 +340,7 @@ describe(NatsServer.name, () => {
       await server.stop();
     } finally {
       spawnSpy.mockRestore();
+      ensureSpy.mockRestore();
     }
   });
 });

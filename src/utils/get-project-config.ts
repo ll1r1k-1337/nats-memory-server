@@ -1,6 +1,7 @@
 import path, { isAbsolute } from 'path';
 import fs, { promises as fsPromises } from 'fs';
 import { type ChecksumMode } from './verify-checksum';
+import { getPlatform } from './get-platform';
 
 const configKey = `natsMemoryServer` as const;
 const configFileBaseName = `nats-memory-server` as const;
@@ -101,6 +102,14 @@ function prepareConfig(
   if (!isAbsolute(config.binPath)) {
     binPath = path.resolve(projectPath, config.binPath);
   }
+
+  // On Windows the extracted/built artifact is `nats-server.exe`. Append the
+  // extension when the path still uses the bare default name so spawn() can
+  // find it; leave any other (custom, already-suffixed) path untouched.
+  if (getPlatform() === `windows` && path.basename(binPath) === `nats-server`) {
+    binPath = `${binPath}.exe`;
+  }
+
   return {
     ...config,
     downloadDir,

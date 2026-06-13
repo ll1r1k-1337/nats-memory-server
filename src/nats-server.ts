@@ -1,5 +1,6 @@
 import child_process from 'child_process';
 import { getFreePort, getProjectConfig, getProjectPath } from './utils';
+import { ensureBinary, type InstallLogger } from './utils/ensure-binary';
 import { NatsServerStartError, NatsServerTimeoutError } from './errors';
 export interface Logger {
   log: (message: string, ...args: unknown[]) => void;
@@ -35,6 +36,12 @@ export const DEFAULT_NATS_SERVER_OPTIONS = {
   startupTimeoutMs: 30_000,
 } satisfies NatsServerOptions;
 
+// Swallow install/download chatter when the server is not verbose.
+const SILENT_INSTALL_LOGGER: InstallLogger = {
+  log: () => undefined,
+  warn: () => undefined,
+};
+
 export class NatsServer {
   private process?: child_process.ChildProcessWithoutNullStreams;
 
@@ -66,17 +73,21 @@ export class NatsServer {
       args,
       ip,
       port = await getFreePort(),
-      binPath,
       startupTimeoutMs = DEFAULT_NATS_SERVER_OPTIONS.startupTimeoutMs,
     } = config;
 
-    if (binPath == null) {
-      throw new Error(`Could not resolve a binPath for the NATS server binary`);
-    }
+    // Resolve the binary lazily: download (and optionally build) it on first
+    // use if it is not already on disk. Only surface install chatter when the
+    // server itself is verbose. Throws BinaryNotFoundError when it cannot be
+    // resolved (no binPath, or download disabled and missing).
+    const installLogger: InstallLogger = verbose
+      ? logger
+      : SILENT_INSTALL_LOGGER;
+    const resolvedBinPath = await ensureBinary(config, installLogger);
 
     return await new Promise((resolve, reject) => {
       this.process = child_process.spawn(
-        binPath,
+        resolvedBinPath,
         [`--addr`, ip, `--port`, port.toString(), ...args],
         { stdio: `pipe` },
       );
