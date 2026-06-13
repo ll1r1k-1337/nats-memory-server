@@ -270,7 +270,7 @@ test('should publish and subscribe', async () => {
 
 ## 📋 Requirements
 
-- **Node.js** ≥ 16
+- **Node.js** ≥ 18
 - **[Go](https://golang.org/)** ≥ 1.19 — *optional*, only needed when `buildFromSource` is enabled
 
 ---
