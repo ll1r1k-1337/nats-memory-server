@@ -1,16 +1,14 @@
-import {
-  type NatsServerOptions,
-  NatsServer,
-  DEFAULT_NATS_SERVER_OPTIONS,
-  type Logger,
-} from './index';
+import { type NatsServerOptions, NatsServer, type Logger } from './index';
 
 export class NatsServerBuilder {
-  private options: NatsServerOptions = DEFAULT_NATS_SERVER_OPTIONS;
+  // Keep only the options that were explicitly provided. Built-in defaults
+  // and the project config file are merged in NatsServer.start(), so an
+  // option left unset here can still be supplied by a config file.
+  private options: Partial<NatsServerOptions> = {};
 
   constructor(options?: Partial<NatsServerOptions>) {
     if (options != null) {
-      this.options = { ...this.options, ...options };
+      this.options = { ...options };
     }
   }
 

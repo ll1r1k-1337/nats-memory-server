@@ -98,6 +98,14 @@ export interface NatsMemoryServerConfig {
   noProxy?: string;
   /** Integrity check for the downloaded archive. Default: `warn`. */
   verifyChecksum?: ChecksumMode;
+  /** Runtime: port the server listens on. Default: a random free port. */
+  port?: number;
+  /** Runtime: bind address. Default: `127.0.0.1`. */
+  ip?: string;
+  /** Runtime: verbose logging. Default: `true`. */
+  verbose?: boolean;
+  /** Runtime: extra CLI arguments passed to `nats-server`. Default: `[]`. */
+  args?: string[];
 }
 
 const defaultConfig: NatsMemoryServerConfig = {

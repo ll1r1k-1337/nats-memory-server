@@ -137,6 +137,10 @@ Provide it via any of: `nats-memory-server.json` · `nats-memory-server.js` · `
 | `verbose` | `boolean`  | `true`               | Verbose logging.                                                                     |
 | `args`    | `string[]` | `[]`                 | Extra arguments passed straight to `nats-server`.                                    |
 
+Runtime options can also be set in code, via [`NatsServerBuilder`](#natsserverbuilder) setters or the `NatsServer`
+constructor. Precedence (highest first): **options set explicitly in code → config file → built-in defaults**.
+A custom `logger` can only be provided in code.
+
 <details>
 <summary><b>Example config files</b></summary>
 
@@ -181,9 +185,12 @@ Full default configuration
   "binPath": "node_modules/.cache/nats-memory-server/nats-server",
   "verifyChecksum": "warn",
   "verbose": true,
-  "ip": "127.0.0.1"
+  "ip": "127.0.0.1",
+  "args": []
 }
 ```
+
+(`port` has no fixed default — a random free port is picked at start.)
 
 </details>
 
@@ -237,13 +244,11 @@ await NatsServerBuilder.create()
 
 ```ts
 const os = require('os');
-const {
-  NatsServer,
-  DEFAULT_NATS_SERVER_OPTIONS,
-} = require('nats-memory-server');
+const { NatsServer } = require('nats-memory-server');
 
+// Options are partial: anything you don't set comes from your config file
+// or the built-in defaults.
 new NatsServer({
-  ...DEFAULT_NATS_SERVER_OPTIONS,
   args: ['--jetstream', '--store_dir', os.tmpdir()],
 });
 ```
