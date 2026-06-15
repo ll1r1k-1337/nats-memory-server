@@ -6,6 +6,22 @@ const configKey = `natsMemoryServer` as const;
 const configFileBaseName = `nats-memory-server` as const;
 const allowedExtensions = [`.ts`, `.js`, `.json`] as const;
 
+// Configs authored as ES modules (`export default {...}`) are compiled to
+// CommonJS as `{ __esModule: true, default: {...} }`; unwrap the default
+// export so the actual config fields get merged, not the interop wrapper.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function unwrapDefaultExport(mod: any): any {
+  if (
+    mod !== null &&
+    typeof mod === `object` &&
+    mod.__esModule === true &&
+    mod.default !== undefined
+  ) {
+    return mod.default;
+  }
+  return mod;
+}
+
 const readFileMap = {
   '.ts': (filePath: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -18,9 +34,12 @@ const readFileMap = {
     }
 
     tsNode.register();
-    return require(filePath);
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return unwrapDefaultExport(require(filePath));
   },
-  '.js': (filePath: string) => require(filePath),
+  '.js': (filePath: string) =>
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    unwrapDefaultExport(require(filePath)),
   '.json': (filePath: string) => JSON.parse(fs.readFileSync(filePath, `utf8`)),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } satisfies Record<(typeof allowedExtensions)[number], (path: string) => any>;
@@ -45,9 +64,12 @@ const readFileAsyncMap = {
     }
 
     tsNode.register();
-    return require(filePath);
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return unwrapDefaultExport(require(filePath));
   },
-  '.js': async (filePath: string) => require(filePath),
+  '.js': async (filePath: string) =>
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    unwrapDefaultExport(require(filePath)),
   '.json': async (filePath: string) =>
     JSON.parse(await fsPromises.readFile(filePath, `utf8`)),
 } satisfies Record<

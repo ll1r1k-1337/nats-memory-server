@@ -154,6 +154,15 @@ A custom `logger` can only be provided in code.
 }
 ```
 
+`nats-memory-server.ts` (or `.js` — both `export default` and `module.exports` work)
+
+```ts
+export default {
+  version: `v2.9.16`,
+  port: 4222,
+};
+```
+
 In `package.json`
 
 ```json
