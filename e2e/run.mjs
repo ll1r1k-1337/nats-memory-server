@@ -45,7 +45,9 @@ const packJson = execFileSync('npm', ['pack', '--ignore-scripts', '--json'], {
   encoding: 'utf8',
   shell: isWin,
 });
-const tarballName = JSON.parse(packJson)[0].filename;
+// `npm pack --json` can print warnings before the JSON array on some npm
+// versions; parse from the first `[` so those lines don't break JSON.parse.
+const tarballName = JSON.parse(packJson.slice(packJson.indexOf('[')))[0].filename;
 copyFileSync(path.join(repoRoot, tarballName), path.join(e2eDir, 'package.tgz'));
 rmSync(path.join(repoRoot, tarballName));
 
@@ -68,6 +70,7 @@ for (const entry of entries) {
     run('docker', ['run', '--rm', '--platform', entry.platform, tag]);
   } catch {
     ok = false;
+    console.error(`\n[e2e] FAILED: ${entry.name}`);
   }
   results.push({ name: entry.name, ok, experimental: Boolean(entry.experimental) });
 }
