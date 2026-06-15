@@ -1,0 +1,56 @@
+name: E2E (multi-arch)
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: echo "matrix=$(jq -c . e2e/matrix.json)" >> "$GITHUB_OUTPUT"
+
+  build-tarball:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm pack --ignore-scripts
+      - run: mv nats-memory-server-*.tgz e2e/package.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-tarball
+          path: e2e/package.tgz
+
+  e2e:
+    needs: [setup, build-tarball]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    continue-on-error: ${{ matrix.experimental }}
+    name: e2e ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-tarball
+          path: e2e
+      - uses: docker/setup-qemu-action@v3
+      - name: Build image
+        run: docker build --platform ${{ matrix.platform }} --build-arg BASE=${{ matrix.base }} -t natsmem-e2e:${{ matrix.name }} e2e
+      - name: Run e2e
+        run: docker run --rm --platform ${{ matrix.platform }} natsmem-e2e:${{ matrix.name }}
