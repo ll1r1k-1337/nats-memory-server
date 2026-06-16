@@ -18,7 +18,8 @@
     "prepare": "husky install",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
-    "test": "jest"
+    "test": "jest",
+    "test:e2e": "node e2e/run.mjs"
   },
   "keywords": [
     "nats",

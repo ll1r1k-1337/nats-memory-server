@@ -285,6 +285,39 @@ test('should publish and subscribe', async () => {
 
 ---
 
+## 🖥️ Supported architectures
+
+`postinstall` downloads the official `nats-server` binary for your OS and CPU.
+These are verified end-to-end on every run of the multi-arch suite:
+
+| OS    | Architecture       | Notes                  |
+| ----- | ------------------ | ---------------------- |
+| Linux | x64 (amd64)        | glibc and musl/Alpine  |
+| Linux | arm64              |                        |
+| Linux | armv7 (32-bit ARM) | resolves to `arm7`     |
+| Linux | s390x              | big-endian             |
+
+32-bit x86 (`ia32` → `386`) and ARMv6 (`arm6`) resolve to the correct binary and
+are covered by unit tests, but are not run as containers (no official 32-bit Node
+image; flaky ARMv6 emulation). macOS (`darwin`) and Windows use the matching
+native binaries.
+
+### Running the multi-arch e2e tests
+
+```bash
+# one-time: register QEMU emulators for non-amd64 architectures
+docker run --privileged --rm tonistiigi/binfmt --install all
+
+npm run test:e2e                          # whole matrix (slow; uses emulation)
+node e2e/run.mjs --only linux-amd64-glibc # a single architecture (no emulation)
+```
+
+Each run packs the package, installs it inside a clean container for every entry
+in [`e2e/matrix.json`](e2e/matrix.json), and performs a NATS pub/sub round-trip.
+Requires Docker.
+
+---
+
 ## 📋 Requirements
 
 - **Node.js** ≥ 16

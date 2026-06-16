@@ -1,0 +1,37 @@
+[
+  {
+    "name": "linux-amd64-glibc",
+    "platform": "linux/amd64",
+    "base": "node:22-bookworm-slim",
+    "expectedArch": "amd64",
+    "experimental": false
+  },
+  {
+    "name": "linux-arm64-glibc",
+    "platform": "linux/arm64",
+    "base": "node:22-bookworm-slim",
+    "expectedArch": "arm64",
+    "experimental": false
+  },
+  {
+    "name": "linux-amd64-musl",
+    "platform": "linux/amd64",
+    "base": "node:22-alpine",
+    "expectedArch": "amd64",
+    "experimental": false
+  },
+  {
+    "name": "linux-armv7-glibc",
+    "platform": "linux/arm/v7",
+    "base": "node:22-bookworm-slim",
+    "expectedArch": "arm7",
+    "experimental": true
+  },
+  {
+    "name": "linux-s390x-glibc",
+    "platform": "linux/s390x",
+    "base": "node:22-bookworm-slim",
+    "expectedArch": "s390x",
+    "experimental": true
+  }
+]

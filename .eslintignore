@@ -10,3 +10,4 @@ jest.*
 tsconfig.app.json
 scripts
 example.js
+e2e
