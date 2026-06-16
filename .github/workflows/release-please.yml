@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# release-please needs to create/update the release PR and the GitHub release.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # Manages the "chore(release): x.y.z" PR, the CHANGELOG, the git tag and
+      # the GitHub release. Uses release-please-config.json +
+      # .release-please-manifest.json by default; the default GITHUB_TOKEN is
+      # sufficient (requires the repo setting "Allow GitHub Actions to create
+      # and approve pull requests" to be enabled).
+      - uses: googleapis/release-please-action@v4
+        id: release
+
+  publish:
+    needs: release-please
+    # Only publish to npm when release-please actually cut a release on this push
+    # (i.e. the release PR was just merged).
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org/'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run postinstall
+      - run: npm run lint
+      - run: npm test
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
