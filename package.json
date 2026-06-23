@@ -51,9 +51,12 @@
     "automation"
   ],
   "lint-staged": {
-    "src/**/*.{js,ts,json}": [
-      "eslint . --fix",
-      "prettier --write ."
+    "*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,json,md,yml,yaml}": [
+      "prettier --write"
     ]
   },
   "author": "Llirik1337",
