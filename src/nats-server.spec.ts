@@ -381,6 +381,77 @@ describe(NatsServer.name, () => {
     }
   });
 
+  it(`Should include recent stderr in the timeout error`, async () => {
+    const child = makeSilentChild();
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => {
+        setImmediate(() => {
+          (child.stderr as unknown as PassThrough).write(
+            `[ERR] boom happened\n`,
+          );
+        });
+        return child;
+      });
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setStartTimeout(150)
+        .build();
+
+      await expect(server.start()).rejects.toThrow(/boom happened/);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+
+  it(`Should poll 127.0.0.1 for /healthz when bound to 0.0.0.0`, async () => {
+    const monitorPort = await getFreePort();
+    const healthServer = http.createServer((req, res) => {
+      if (req.url === `/healthz`) {
+        res.writeHead(200);
+        res.end(`{"status":"ok"}`);
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((resolve) => {
+      healthServer.listen(monitorPort, `127.0.0.1`, resolve);
+    });
+
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setIp(`0.0.0.0`)
+        .setPort(45340)
+        .setMonitoringPort(monitorPort)
+        .build();
+
+      // The healthz server is bound to 127.0.0.1 only; start() resolving proves
+      // the poll targeted 127.0.0.1 rather than 0.0.0.0. The public URL mirrors
+      // getUrl()'s convention and reflects the configured bind host.
+      await withTimeout(server.start(), 5000, `0.0.0.0 monitoring start()`);
+      expect(server.getMonitoringUrl()).toBe(`http://0.0.0.0:${monitorPort}`);
+
+      await server.stop();
+    } finally {
+      spawnSpy.mockRestore();
+      await new Promise<void>((resolve) => {
+        healthServer.close(() => {
+          resolve();
+        });
+      });
+    }
+  });
+
   it(`Should expose a working /healthz endpoint with the real server`, async () => {
     const server = await NatsServerBuilder.create()
       .setVerbose(false)

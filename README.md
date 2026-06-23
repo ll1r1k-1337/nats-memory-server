@@ -276,12 +276,16 @@ console.log(server.getMonitoringUrl()); // e.g. http://127.0.0.1:8222
 // GET `${server.getMonitoringUrl()}/varz`    -> server stats
 ```
 
+**Builder methods**
+
 | Method | Description |
 | ------------------------------ | ------------------------------------------------------------ |
 | `enableMonitoring()`           | Enable monitoring on an automatically chosen free port.       |
 | `disableMonitoring()`          | Disable monitoring (the default).                             |
 | `setMonitoringPort(port)`      | Enable monitoring on an explicit port.                        |
-| `getMonitoringUrl()`           | `http://host:port` when enabled and started, else `undefined`.|
+| `setStartTimeout(ms)`          | Override the readiness timeout (default `30000` ms).          |
+
+**`server.getMonitoringUrl(): string | undefined`** — `http://host:port` when monitoring is enabled and the server has started, otherwise `undefined`.
 
 Monitoring is **off by default**. It can also be set in a config file via
 `"monitoring": true` (or a port number).

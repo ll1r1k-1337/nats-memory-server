@@ -3,7 +3,8 @@ import http from 'http';
 export interface WaitForHealthzOptions {
   /** Delay between poll attempts in milliseconds. Default: 50. */
   intervalMs?: number;
-  /** Abort to stop polling; the returned promise rejects when aborted. */
+  /** Abort to stop polling; the returned promise rejects when aborted. Supply a
+   * timeout-backed signal so a half-open connection cannot hang indefinitely. */
   signal?: AbortSignal;
 }
 
@@ -13,6 +14,9 @@ const DEFAULT_INTERVAL_MS = 50;
 async function probeOnce(url: string, signal?: AbortSignal): Promise<boolean> {
   return await new Promise<boolean>((resolve) => {
     const request = http.get(url, { signal }, (response) => {
+      response.on(`error`, () => {
+        // Ignore late stream errors during/after drain; the status is captured.
+      });
       const status = response.statusCode ?? 0;
       response.resume(); // drain so the socket frees promptly
       resolve(status >= 200 && status < 300);

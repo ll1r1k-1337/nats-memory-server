@@ -158,6 +158,8 @@ export class NatsServer {
 
       let isReady = false;
       let settled = false;
+      let stderrTail = ``;
+      const MAX_STDERR_TAIL = 2000;
 
       // A single controller + timer bounds the whole readiness wait and stops
       // the healthz poller. Cleared/aborted in every settlement path so nothing
@@ -202,9 +204,11 @@ export class NatsServer {
             `NATS server did not become ready within ${startTimeoutMs}ms`,
           );
         }
+        const tail = stderrTail.trim();
         settleReject(
           new Error(
-            `NATS server did not become ready within ${startTimeoutMs}ms`,
+            `NATS server did not become ready within ${startTimeoutMs}ms` +
+              (tail !== `` ? `. Last stderr: ${tail}` : ``),
           ),
         );
       }, startTimeoutMs);
@@ -236,19 +240,23 @@ export class NatsServer {
       }
 
       child.stderr.on(`data`, (data: unknown) => {
-        // Once ready, non-verbose mode has nothing left to do on this stream.
-        if (isReady && !verbose) {
+        // Once settled, non-verbose mode has nothing left to do on this stream.
+        if (settled && !verbose) {
           return;
         }
 
         let dataStr: string | undefined;
         if (Buffer.isBuffer(data)) {
-          if (verbose) {
-            dataStr = data.toString();
-          }
-        } else {
+          dataStr = data.toString();
+        } else if (data != null) {
           // eslint-disable-next-line @typescript-eslint/no-base-to-string
-          dataStr = data?.toString();
+          dataStr = String(data);
+        }
+
+        // Keep a short rolling tail of stderr before readiness so a failed
+        // start can report what nats-server actually printed.
+        if (!settled && dataStr != null && dataStr !== ``) {
+          stderrTail = (stderrTail + dataStr).slice(-MAX_STDERR_TAIL);
         }
 
         if (verbose && dataStr != null) {
@@ -256,12 +264,8 @@ export class NatsServer {
         }
 
         // Stderr is the readiness signal only when monitoring is disabled.
-        if (monitorPort === undefined && !isReady) {
-          const ready = Buffer.isBuffer(data)
-            ? data.includes(`Server is ready`)
-            : dataStr?.includes(`Server is ready`) === true;
-
-          if (ready) {
+        if (monitorPort === undefined && !isReady && dataStr != null) {
+          if (dataStr.includes(`Server is ready`)) {
             markReady();
           }
         }
@@ -280,9 +284,10 @@ export class NatsServer {
 
         // Exiting before readiness is always a failure regardless of exit code.
         if (!settled) {
+          const tail = stderrTail.trim();
           const message = `NATS server exited before becoming ready${
             code !== null ? ` (exit code: ${code})` : ``
-          }`;
+          }${tail !== `` ? `. Last stderr: ${tail}` : ``}`;
 
           if (verbose) {
             logger.warn(message, code);
