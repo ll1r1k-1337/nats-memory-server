@@ -360,6 +360,27 @@ describe(NatsServer.name, () => {
     }
   });
 
+  it(`Should return undefined from getMonitoringUrl after a failed start with monitoring enabled`, async () => {
+    const monitorPort = await getFreePort(); // nothing serves /healthz here
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setMonitoringPort(monitorPort)
+        .setStartTimeout(150)
+        .build();
+
+      await expect(server.start()).rejects.toThrow(/did not become ready/);
+      expect(server.getMonitoringUrl()).toBeUndefined();
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+
   it(`Should expose a working /healthz endpoint with the real server`, async () => {
     const server = await NatsServerBuilder.create()
       .setVerbose(false)

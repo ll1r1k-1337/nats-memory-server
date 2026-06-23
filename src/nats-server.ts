@@ -133,7 +133,7 @@ export class NatsServer {
 
     this.host = ip;
     this.port = port;
-    this.monitorPort = monitorPort;
+    this.monitorPort = undefined;
 
     const spawnArgs =
       monitorPort !== undefined
@@ -186,6 +186,7 @@ export class NatsServer {
         if (verbose) {
           logger.log(`NATS server is ready!`);
         }
+        this.monitorPort = monitorPort;
         resolve(this);
         child.unref();
       };
