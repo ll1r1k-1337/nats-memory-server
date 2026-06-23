@@ -1,6 +1,7 @@
 import child_process from 'child_process';
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
+import http from 'http';
 import { PassThrough, Readable } from 'stream';
 import { DEFAULT_NATS_SERVER_OPTIONS, NatsServer } from './nats-server';
 import { NatsServerBuilder } from './nats-server.builder';
@@ -44,6 +45,36 @@ function makeFloodingChild(): ChildProcessWithoutNullStreams {
   stdout.push(null);
   stdout.once(`end`, () => {
     stderr.write(`[INF] Server is ready\n`);
+  });
+
+  return child;
+}
+
+/**
+ * A fake child that spawns successfully and stays alive but NEVER writes a
+ * readiness line. Used to exercise the start timeout and the healthz path,
+ * where readiness must come from somewhere other than stderr.
+ */
+function makeSilentChild(): ChildProcessWithoutNullStreams {
+  const child = new EventEmitter() as unknown as ChildProcessWithoutNullStreams;
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+
+  Object.assign(child, {
+    stdout,
+    stderr,
+    exitCode: null,
+    signalCode: null,
+    unref: () => {
+      // no-op
+    },
+    kill: () => {
+      Object.assign(child, { exitCode: 0 });
+      stdout.end();
+      stderr.end();
+      queueMicrotask(() => child.emit(`close`, 0, null));
+      return true;
+    },
   });
 
   return child;
@@ -255,6 +286,106 @@ describe(NatsServer.name, () => {
       await server.stop();
     } finally {
       spawnSpy.mockRestore();
+    }
+  });
+
+  it(`Should reject start() if the server never becomes ready within the timeout`, async () => {
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setStartTimeout(150)
+        .build();
+
+      await expect(server.start()).rejects.toThrow(/did not become ready/);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+
+  it(`Should return undefined from getMonitoringUrl when monitoring is disabled`, () => {
+    const server = NatsServerBuilder.create().build();
+    expect(server.getMonitoringUrl()).toBeUndefined();
+  });
+
+  it(`Should become ready via /healthz and expose getMonitoringUrl when monitoring is enabled`, async () => {
+    const monitorPort = await getFreePort();
+    const healthServer = http.createServer((req, res) => {
+      if (req.url === `/healthz`) {
+        res.writeHead(200);
+        res.end(`{"status":"ok"}`);
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((resolve) => {
+      healthServer.listen(monitorPort, `127.0.0.1`, resolve);
+    });
+
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setIp(`127.0.0.1`)
+        .setPort(45330)
+        .setMonitoringPort(monitorPort)
+        .build();
+
+      await withTimeout(server.start(), 5000, `monitoring start()`);
+
+      expect(server.getMonitoringUrl()).toBe(`http://127.0.0.1:${monitorPort}`);
+      expect(spawnSpy).toHaveBeenCalledWith(
+        `fake-nats-server`,
+        [`--addr`, `127.0.0.1`, `--port`, `45330`, `-m`, String(monitorPort)],
+        { stdio: `pipe` },
+      );
+
+      await server.stop();
+    } finally {
+      spawnSpy.mockRestore();
+      await new Promise<void>((resolve) => {
+        healthServer.close(() => {
+          resolve();
+        });
+      });
+    }
+  });
+
+  it(`Should expose a working /healthz endpoint with the real server`, async () => {
+    const server = await NatsServerBuilder.create()
+      .setVerbose(false)
+      .enableMonitoring()
+      .build()
+      .start();
+
+    try {
+      const url = server.getMonitoringUrl();
+      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+
+      const status = await new Promise<number>((resolve, reject) => {
+        http
+          .get(`${url as string}/healthz`, (res) => {
+            res.resume();
+            resolve(res.statusCode ?? 0);
+          })
+          .on(`error`, reject);
+      });
+      expect(status).toBe(200);
+
+      const nc = await connect({ servers: server.getUrl() });
+      expect(nc.isClosed()).toBe(false);
+      await nc.close();
+    } finally {
+      await server.stop();
     }
   });
 });
