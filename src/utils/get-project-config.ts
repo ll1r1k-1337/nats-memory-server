@@ -106,6 +106,10 @@ export interface NatsMemoryServerConfig {
   verbose?: boolean;
   /** Runtime: extra CLI arguments passed to `nats-server`. Default: `[]`. */
   args?: string[];
+  /** Runtime: HTTP monitoring port. `false` (default) / `true` (free port) / number. */
+  monitoring?: boolean | number;
+  /** Runtime: readiness timeout in milliseconds. Default: `30000`. */
+  startTimeoutMs?: number;
 }
 
 const defaultConfig: NatsMemoryServerConfig = {

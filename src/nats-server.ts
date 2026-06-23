@@ -19,6 +19,10 @@ export interface NatsServerOptions {
   ip: string;
   logger: Logger;
   binPath?: string;
+  /** HTTP monitoring port: `false` disables it, `true` picks a free port, a number uses that port. */
+  monitoring: boolean | number;
+  /** How long start() waits for readiness before failing, in milliseconds. */
+  startTimeoutMs: number;
 }
 
 export const DEFAULT_NATS_SERVER_OPTIONS = {
@@ -29,6 +33,8 @@ export const DEFAULT_NATS_SERVER_OPTIONS = {
   ip: `127.0.0.1`,
   args: [],
   logger: console,
+  monitoring: false,
+  startTimeoutMs: 30000,
 } satisfies NatsServerOptions;
 
 /**
@@ -55,6 +61,12 @@ function pickRuntimeOptions(
   }
   if (config.binPath !== undefined) {
     runtime.binPath = config.binPath;
+  }
+  if (config.monitoring !== undefined) {
+    runtime.monitoring = config.monitoring;
+  }
+  if (config.startTimeoutMs !== undefined) {
+    runtime.startTimeoutMs = config.startTimeoutMs;
   }
 
   return runtime;
