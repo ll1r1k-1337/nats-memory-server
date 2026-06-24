@@ -3,7 +3,11 @@ import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
 import http from 'http';
 import { PassThrough, Readable } from 'stream';
-import { DEFAULT_NATS_SERVER_OPTIONS, NatsServer } from './nats-server';
+import {
+  DEFAULT_NATS_SERVER_OPTIONS,
+  NatsServer,
+  buildHealthzUrl,
+} from './nats-server';
 import { NatsServerBuilder } from './nats-server.builder';
 import { getFreePort } from './utils';
 import { connect, StringCodec } from 'nats';
@@ -512,5 +516,62 @@ describe(NatsServer.name, () => {
     } finally {
       await server.stop();
     }
+  });
+
+  it(`keeps a multibyte stderr char intact when split across chunks`, async () => {
+    const child = makeSilentChild();
+    const emojiBytes = Buffer.from(`😀`, `utf8`); // 4 UTF-8 bytes
+
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => {
+        setImmediate(() => {
+          const stderr = child.stderr as unknown as PassThrough;
+          stderr.write(Buffer.from(`[ERR] `, `utf8`));
+          // Split the 4-byte sequence across two separate `data` events.
+          stderr.write(emojiBytes.subarray(0, 2));
+          stderr.write(emojiBytes.subarray(2));
+        });
+        return child;
+      });
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setStartTimeout(150)
+        .build();
+
+      // The captured tail must contain the intact emoji, not the U+FFFD
+      // replacement characters a per-chunk decode would produce.
+      await expect(server.start()).rejects.toThrow(/😀/);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+});
+
+describe(`buildHealthzUrl`, () => {
+  it(`uses the bind host for a normal IPv4 address`, () => {
+    expect(buildHealthzUrl(`127.0.0.1`, 8222)).toBe(
+      `http://127.0.0.1:8222/healthz`,
+    );
+  });
+
+  it(`probes loopback for the IPv4 wildcard`, () => {
+    expect(buildHealthzUrl(`0.0.0.0`, 8222)).toBe(
+      `http://127.0.0.1:8222/healthz`,
+    );
+  });
+
+  it(`probes ::1 and brackets the IPv6 wildcard`, () => {
+    expect(buildHealthzUrl(`::`, 8222)).toBe(`http://[::1]:8222/healthz`);
+  });
+
+  it(`brackets IPv6 literals`, () => {
+    expect(buildHealthzUrl(`::1`, 8222)).toBe(`http://[::1]:8222/healthz`);
+    expect(buildHealthzUrl(`fe80::1`, 9000)).toBe(
+      `http://[fe80::1]:9000/healthz`,
+    );
   });
 });

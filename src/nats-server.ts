@@ -1,4 +1,5 @@
 import child_process from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import {
   getFreePort,
   getProjectConfig,
@@ -73,6 +74,29 @@ function pickRuntimeOptions(
   return runtime;
 }
 
+/**
+ * Builds the local `/healthz` probe URL for a server bound to `ip`. Wildcard
+ * binds are probed over loopback (`0.0.0.0` -> `127.0.0.1`, `::` -> `::1`), and
+ * IPv6 literals are wrapped in brackets so the URL is well-formed — otherwise
+ * `http.get` throws `ERR_INVALID_URL` and readiness can only fail by timeout.
+ */
+export function buildHealthzUrl(ip: string, monitorPort: number): string {
+  let host: string;
+  if (ip === `0.0.0.0` || ip === ``) {
+    host = `127.0.0.1`;
+  } else if (ip === `::` || ip === `[::]`) {
+    host = `::1`;
+  } else {
+    host = ip;
+  }
+
+  // An IPv6 literal (contains `:`) must be bracketed in a URL authority.
+  const authorityHost =
+    host.includes(`:`) && !host.startsWith(`[`) ? `[${host}]` : host;
+
+  return `http://${authorityHost}:${monitorPort}/healthz`;
+}
+
 export class NatsServer {
   private process?: child_process.ChildProcessWithoutNullStreams;
 
@@ -144,27 +168,42 @@ export class NatsServer {
     this.resolvedOptions = config;
 
     const { verbose, logger } = config;
-    const {
-      args,
-      ip,
-      port = await getFreePort(),
-      binPath,
-      monitoring,
-      startTimeoutMs,
-    } = config;
+    const { args, ip, binPath, monitoring, startTimeoutMs } = config;
 
     if (binPath == null) {
       throw new Error(`Could not resolve a binPath for the NATS server binary`);
     }
 
-    // Resolve the monitoring port. `undefined` means monitoring is disabled; a
-    // free port is allocated when monitoring is enabled without an explicit one.
+    // Resolve the client and monitoring ports so they can never collide.
+    // getFreePort releases each probe socket before returning, so two unguarded
+    // calls — or an auto port that happens to equal an explicit one — could
+    // yield the same number, and `--port X -m X` fails to bind. Exclude the
+    // explicit monitoring port when auto-allocating the client port, and the
+    // resolved client port when auto-allocating the monitoring port.
+    const explicitMonitorPort =
+      typeof monitoring === `number` ? monitoring : undefined;
+
+    const port =
+      config.port ??
+      (await getFreePort(
+        explicitMonitorPort !== undefined
+          ? new Set([explicitMonitorPort])
+          : undefined,
+      ));
+
+    // `undefined` means monitoring is disabled; a free port (distinct from the
+    // client port) is allocated when monitoring is enabled without an explicit
+    // one.
     const monitorPort =
       monitoring === false
         ? undefined
-        : typeof monitoring === `number`
-        ? monitoring
-        : await getFreePort();
+        : explicitMonitorPort ?? (await getFreePort(new Set([port])));
+
+    if (monitorPort !== undefined && monitorPort === port) {
+      throw new Error(
+        `NATS client port and monitoring port must differ (both ${port})`,
+      );
+    }
 
     this.host = ip;
     this.port = port;
@@ -195,6 +234,9 @@ export class NatsServer {
       let settled = false;
       let stderrTail = ``;
       const MAX_STDERR_TAIL = 2000;
+      // Decode stderr across chunk boundaries so a multibyte UTF-8 sequence
+      // split between two `data` events is not corrupted in the captured tail.
+      const stderrDecoder = new StringDecoder(`utf8`);
 
       // A single controller + timer bounds the whole readiness wait and stops
       // the healthz poller. Cleared/aborted in every settlement path so nothing
@@ -267,8 +309,7 @@ export class NatsServer {
       // When monitoring is enabled, readiness is decided by the HTTP monitoring
       // endpoint — deterministic and independent of log text.
       if (monitorPort !== undefined) {
-        const healthHost = ip === `0.0.0.0` ? `127.0.0.1` : ip;
-        const healthUrl = `http://${healthHost}:${monitorPort}/healthz`;
+        const healthUrl = buildHealthzUrl(ip, monitorPort);
         void waitForHealthz(healthUrl, { signal: controller.signal })
           .then(() => {
             markReady();
@@ -287,7 +328,7 @@ export class NatsServer {
 
         let dataStr: string | undefined;
         if (Buffer.isBuffer(data)) {
-          dataStr = data.toString();
+          dataStr = stderrDecoder.write(data);
         } else if (data != null) {
           // eslint-disable-next-line @typescript-eslint/no-base-to-string
           dataStr = String(data);
