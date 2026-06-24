@@ -74,7 +74,7 @@ export class NatsServer {
   /** The in-flight start() promise. Established synchronously at the top of
    * start() so concurrent/re-entrant calls share one spawn instead of racing
    * past the `this.process == null` guard — this.process is not assigned until
-   * spawnServer() spawns, after its awaits. */
+   * _start() spawns, after its awaits. */
   private startPromise?: Promise<this>;
 
   constructor(private readonly options: Partial<NatsServerOptions> = {}) {}
@@ -105,7 +105,7 @@ export class NatsServer {
       return await this.startPromise;
     }
 
-    const startPromise = this.spawnServer();
+    const startPromise = this._start();
     this.startPromise = startPromise;
 
     try {
@@ -116,7 +116,7 @@ export class NatsServer {
     }
   }
 
-  private async spawnServer(): Promise<this> {
+  private async _start(): Promise<this> {
     // getProjectConfig memoizes per project path (and no longer caches a
     // rejection), so calling it directly each start() is both cheap and
     // recoverable — no separate static promise cache is needed here.
