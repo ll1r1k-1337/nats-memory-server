@@ -41,6 +41,26 @@ export class NatsServerBuilder {
     return this;
   }
 
+  enableMonitoring(): this {
+    this.options = { ...this.options, monitoring: true };
+    return this;
+  }
+
+  disableMonitoring(): this {
+    this.options = { ...this.options, monitoring: false };
+    return this;
+  }
+
+  setMonitoringPort(port: number): this {
+    this.options = { ...this.options, monitoring: port };
+    return this;
+  }
+
+  setStartTimeout(ms: number): this {
+    this.options = { ...this.options, startTimeoutMs: ms };
+    return this;
+  }
+
   setLogger(logger: Logger): this {
     this.options = { ...this.options, logger };
     return this;

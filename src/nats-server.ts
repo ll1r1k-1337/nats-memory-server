@@ -1,8 +1,10 @@
 import child_process from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import {
   getFreePort,
   getProjectConfig,
   getProjectPath,
+  waitForHealthz,
   type NatsMemoryServerConfig,
 } from './utils';
 export interface Logger {
@@ -19,6 +21,10 @@ export interface NatsServerOptions {
   ip: string;
   logger: Logger;
   binPath?: string;
+  /** HTTP monitoring port: `false` disables it, `true` picks a free port, a number uses that port. */
+  monitoring: boolean | number;
+  /** How long start() waits for readiness before failing, in milliseconds. */
+  startTimeoutMs: number;
 }
 
 export const DEFAULT_NATS_SERVER_OPTIONS = {
@@ -29,6 +35,8 @@ export const DEFAULT_NATS_SERVER_OPTIONS = {
   ip: `127.0.0.1`,
   args: [],
   logger: console,
+  monitoring: false,
+  startTimeoutMs: 30000,
 } satisfies NatsServerOptions;
 
 /**
@@ -56,8 +64,37 @@ function pickRuntimeOptions(
   if (config.binPath !== undefined) {
     runtime.binPath = config.binPath;
   }
+  if (config.monitoring !== undefined) {
+    runtime.monitoring = config.monitoring;
+  }
+  if (config.startTimeoutMs !== undefined) {
+    runtime.startTimeoutMs = config.startTimeoutMs;
+  }
 
   return runtime;
+}
+
+/**
+ * Builds the local `/healthz` probe URL for a server bound to `ip`. Wildcard
+ * binds are probed over loopback (`0.0.0.0` -> `127.0.0.1`, `::` -> `::1`), and
+ * IPv6 literals are wrapped in brackets so the URL is well-formed — otherwise
+ * `http.get` throws `ERR_INVALID_URL` and readiness can only fail by timeout.
+ */
+export function buildHealthzUrl(ip: string, monitorPort: number): string {
+  let host: string;
+  if (ip === `0.0.0.0` || ip === ``) {
+    host = `127.0.0.1`;
+  } else if (ip === `::` || ip === `[::]`) {
+    host = `::1`;
+  } else {
+    host = ip;
+  }
+
+  // An IPv6 literal (contains `:`) must be bracketed in a URL authority.
+  const authorityHost =
+    host.includes(`:`) && !host.startsWith(`[`) ? `[${host}]` : host;
+
+  return `http://${authorityHost}:${monitorPort}/healthz`;
 }
 
 export class NatsServer {
@@ -65,6 +102,7 @@ export class NatsServer {
 
   private host!: string;
   private port!: number;
+  private monitorPort?: number;
 
   /** The options start() actually ran with, after merging in the defaults
    * and the project config; used by stop() so both ends of the lifecycle
@@ -99,7 +137,7 @@ export class NatsServer {
     // A start() is already in flight (e.g. Promise.all([s.start(), s.start()])
     // or a re-entrant call before the first resolved). Share that promise: the
     // guard above can't catch a concurrent caller because this.process is not
-    // assigned until spawnServer() spawns — after its awaits — so without this
+    // assigned until _start() spawns — after its awaits — so without this
     // a second caller would spawn a second, orphaned child.
     if (this.startPromise != null) {
       return await this.startPromise;
@@ -122,10 +160,6 @@ export class NatsServer {
     // recoverable — no separate static promise cache is needed here.
     const projectConfig = await getProjectConfig(getProjectPath());
 
-    // Precedence: built-in defaults < project config file < options passed
-    // explicitly to the builder/constructor. Plain spreads keep an
-    // explicitly-set `undefined` overriding the config (e.g. a deliberate
-    // `{ binPath: undefined }` must not silently fall back).
     const config: NatsServerOptions = {
       ...DEFAULT_NATS_SERVER_OPTIONS,
       ...pickRuntimeOptions(projectConfig),
@@ -134,116 +168,217 @@ export class NatsServer {
     this.resolvedOptions = config;
 
     const { verbose, logger } = config;
-    const { args, ip, port = await getFreePort(), binPath } = config;
+    const { args, ip, binPath, monitoring, startTimeoutMs } = config;
 
     if (binPath == null) {
       throw new Error(`Could not resolve a binPath for the NATS server binary`);
     }
 
-    return await new Promise<this>((resolve, reject) => {
-      const child = child_process.spawn(
-        binPath,
-        [`--addr`, ip, `--port`, port.toString(), ...args],
-        { stdio: `pipe` },
+    // Resolve the client and monitoring ports so they can never collide.
+    // getFreePort releases each probe socket before returning, so two unguarded
+    // calls — or an auto port that happens to equal an explicit one — could
+    // yield the same number, and `--port X -m X` fails to bind. Exclude the
+    // explicit monitoring port when auto-allocating the client port, and the
+    // resolved client port when auto-allocating the monitoring port.
+    const explicitMonitorPort =
+      typeof monitoring === `number` ? monitoring : undefined;
+
+    const port =
+      config.port ??
+      (await getFreePort(
+        explicitMonitorPort !== undefined
+          ? new Set([explicitMonitorPort])
+          : undefined,
+      ));
+
+    // `undefined` means monitoring is disabled; a free port (distinct from the
+    // client port) is allocated when monitoring is enabled without an explicit
+    // one.
+    const monitorPort =
+      monitoring === false
+        ? undefined
+        : explicitMonitorPort ?? (await getFreePort(new Set([port])));
+
+    if (monitorPort !== undefined && monitorPort === port) {
+      throw new Error(
+        `NATS client port and monitoring port must differ (both ${port})`,
       );
+    }
 
+    this.host = ip;
+    this.port = port;
+    this.monitorPort = undefined;
+
+    const spawnArgs =
+      monitorPort !== undefined
+        ? [
+            `--addr`,
+            ip,
+            `--port`,
+            port.toString(),
+            `-m`,
+            monitorPort.toString(),
+            ...args,
+          ]
+        : [`--addr`, ip, `--port`, port.toString(), ...args];
+
+    return await new Promise<this>((resolve, reject) => {
+      const child = child_process.spawn(binPath, spawnArgs, { stdio: `pipe` });
       this.process = child;
-      this.host = ip;
-      this.port = port;
 
-      // Drain stdout so a child that writes heavily to stdout (e.g. `--log
-      // /dev/stdout`) can't deadlock by filling the OS pipe buffer while we
-      // wait for the readiness line on stderr. nats-server itself logs to
-      // stderr, but we don't control what a custom binPath prints. We don't
-      // need stdout's contents, so just let it flow and discard.
+      // Drain stdout so a child that writes heavily to stdout can't deadlock by
+      // filling the OS pipe buffer while we wait for readiness.
       child.stdout.resume();
 
       let isReady = false;
+      let settled = false;
+      let stderrTail = ``;
+      const MAX_STDERR_TAIL = 2000;
+      // Decode stderr across chunk boundaries so a multibyte UTF-8 sequence
+      // split between two `data` events is not corrupted in the captured tail.
+      const stderrDecoder = new StringDecoder(`utf8`);
+
+      // A single controller + timer bounds the whole readiness wait and stops
+      // the healthz poller. Cleared/aborted in every settlement path so nothing
+      // outlives start().
+      const controller = new AbortController();
+
+      const settleReject = (error: Error): void => {
+        clearTimeout(timer);
+        controller.abort();
+        if (settled) {
+          return;
+        }
+        settled = true;
+        // Clear the handle only if it still points at our child, so a stale
+        // settle (e.g. a failed earlier spawn) can't wipe a healthy handle a
+        // later start() installed.
+        if (this.process === child) {
+          this.process = undefined;
+        }
+        reject(error);
+      };
+
+      const markReady = (): void => {
+        if (settled) {
+          return;
+        }
+        isReady = true;
+        settled = true;
+        clearTimeout(timer);
+        controller.abort();
+        if (verbose) {
+          logger.log(`NATS server is ready!`);
+        }
+        this.monitorPort = monitorPort;
+        resolve(this);
+        child.unref();
+      };
+
+      const timer = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        // Kill the child we could not confirm ready, then fail loudly.
+        child.kill();
+        if (verbose) {
+          logger.warn(
+            `NATS server did not become ready within ${startTimeoutMs}ms`,
+          );
+        }
+        const tail = stderrTail.trim();
+        settleReject(
+          new Error(
+            `NATS server did not become ready within ${startTimeoutMs}ms` +
+              (tail !== `` ? `. Last stderr: ${tail}` : ``),
+          ),
+        );
+      }, startTimeoutMs);
+      timer.unref();
 
       child.once(`error`, (err) => {
         if (verbose) {
           logger.error(`NATS server error:`, err);
         }
-
-        // Only fail the start Promise if we never became ready; a transient
-        // error after readiness must not tear down a running server's handle.
-        // Clear the handle only if it still points at our child, so a failed
-        // spawn cannot wipe a handle a later start() already installed.
-        if (!isReady) {
-          if (this.process === child) {
-            this.process = undefined;
-          }
-          reject(err);
-        }
+        // After readiness, settleReject() is a no-op (settled) and leaves the
+        // running handle intact — a transient post-ready error must not tear it
+        // down. Before readiness it rejects the start Promise.
+        settleReject(err);
       });
 
+      // When monitoring is enabled, readiness is decided by the HTTP monitoring
+      // endpoint — deterministic and independent of log text.
+      if (monitorPort !== undefined) {
+        const healthUrl = buildHealthzUrl(ip, monitorPort);
+        void waitForHealthz(healthUrl, { signal: controller.signal })
+          .then(() => {
+            markReady();
+          })
+          .catch(() => {
+            // Aborted by the timeout/error/close path, which has already
+            // settled the Promise; nothing to do here.
+          });
+      }
+
       child.stderr.on(`data`, (data: unknown) => {
-        // Once ready, non-verbose mode has nothing left to do on this stream,
-        // so skip the work entirely for high-volume logs.
-        if (isReady && !verbose) {
+        // Once settled, non-verbose mode has nothing left to do on this stream.
+        if (settled && !verbose) {
           return;
         }
 
-        // Only allocate a string when we actually need it (verbose logging or
-        // the readiness check on a non-Buffer chunk).
         let dataStr: string | undefined;
         if (Buffer.isBuffer(data)) {
-          if (verbose) {
-            dataStr = data.toString();
-          }
-        } else {
+          dataStr = stderrDecoder.write(data);
+        } else if (data != null) {
           // eslint-disable-next-line @typescript-eslint/no-base-to-string
-          dataStr = data?.toString();
+          dataStr = String(data);
+        }
+
+        // Keep a short rolling tail of stderr before readiness so a failed
+        // start can report what nats-server actually printed.
+        if (!settled && dataStr != null && dataStr !== ``) {
+          stderrTail = (stderrTail + dataStr).slice(-MAX_STDERR_TAIL);
         }
 
         if (verbose && dataStr != null) {
           logger.log(dataStr);
         }
 
-        if (!isReady) {
-          const ready = Buffer.isBuffer(data)
-            ? data.includes(`Server is ready`)
-            : dataStr?.includes(`Server is ready`) === true;
-
-          if (ready) {
-            isReady = true;
-            if (verbose) {
-              logger.log(`NATS server is ready!`);
-            }
-            resolve(this);
-            child.unref();
+        // Stderr is the readiness signal only when monitoring is disabled.
+        if (monitorPort === undefined && !isReady && dataStr != null) {
+          if (dataStr.includes(`Server is ready`)) {
+            markReady();
           }
         }
       });
 
       child.once(`close`, (code) => {
-        // The child has exited: clear the handle so a later stop() does not
         // kill() a dead process (which never re-emits `close`, hanging stop())
-        // and so start() can spawn a fresh server on a subsequent call. Guard
-        // on identity so a second, failed spawn's close can't clear the handle
-        // of a healthy server a later start() already installed.
+        // and so start() can spawn a fresh server later. Guard on identity so a
+        // second, failed spawn's close can't clear a healthy handle a later
+        // start() installed.
         if (this.process === child) {
           this.process = undefined;
         }
+        clearTimeout(timer);
+        controller.abort();
 
         if (verbose) {
           logger.log(`NATS server was stop!`);
         }
 
-        // Exiting before the readiness signal is always a failure regardless of
-        // the exit code (nats-server exits 0 on `--help`, 1 on a port conflict).
-        // After readiness the start Promise is already settled, so this branch
-        // is a no-op for the normal shutdown path.
-        if (!isReady) {
+        // Exiting before readiness is always a failure regardless of exit code.
+        if (!settled) {
+          const tail = stderrTail.trim();
           const message = `NATS server exited before becoming ready${
             code !== null ? ` (exit code: ${code})` : ``
-          }`;
+          }${tail !== `` ? `. Last stderr: ${tail}` : ``}`;
 
           if (verbose) {
             logger.warn(message, code);
           }
 
-          reject(new Error(message));
+          settleReject(new Error(message));
         }
       });
     });
@@ -251,6 +386,13 @@ export class NatsServer {
 
   public getUrl(): string {
     return `nats://${this.host}:${this.port}`;
+  }
+
+  public getMonitoringUrl(): string | undefined {
+    if (this.monitorPort === undefined) {
+      return undefined;
+    }
+    return `http://${this.host}:${this.monitorPort}`;
   }
 
   public getHost(): string {

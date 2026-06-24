@@ -257,6 +257,45 @@ new NatsServer({
 
 ---
 
+## 📈 Monitoring & readiness
+
+Enable the `nats-server` HTTP monitoring endpoint and read its URL. When monitoring
+is enabled, readiness is detected via `GET /healthz` instead of scanning the log
+output, which is robust to log formatting and routing.
+
+```ts
+const { NatsServerBuilder } = require('nats-memory-server');
+
+const server = await NatsServerBuilder.create()
+  .enableMonitoring() // or .setMonitoringPort(8222) for a fixed port
+  .build()
+  .start();
+
+console.log(server.getMonitoringUrl()); // e.g. http://127.0.0.1:8222
+// GET `${server.getMonitoringUrl()}/healthz` -> 200 {"status":"ok"}
+// GET `${server.getMonitoringUrl()}/varz`    -> server stats
+```
+
+**Builder methods**
+
+| Method | Description |
+| ------------------------------ | ------------------------------------------------------------ |
+| `enableMonitoring()`           | Enable monitoring on an automatically chosen free port.       |
+| `disableMonitoring()`          | Disable monitoring (the default).                             |
+| `setMonitoringPort(port)`      | Enable monitoring on an explicit port.                        |
+| `setStartTimeout(ms)`          | Override the readiness timeout (default `30000` ms).          |
+
+**`server.getMonitoringUrl(): string | undefined`** — `http://host:port` when monitoring is enabled and the server has started, otherwise `undefined`.
+
+Monitoring is **off by default**. It can also be set in a config file via
+`"monitoring": true` (or a port number).
+
+`start()` is bounded by a readiness timeout (default `30000` ms). Adjust it with
+`setStartTimeout(ms)` or the `startTimeoutMs` config option; on expiry `start()`
+rejects and the child process is terminated.
+
+---
+
 ## 🧪 Testing with Jest
 
 Spin up one server per suite — start it in `beforeAll`, tear it down in `afterAll`:

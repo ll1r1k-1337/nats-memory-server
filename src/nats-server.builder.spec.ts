@@ -58,4 +58,38 @@ describe(NatsServerBuilder.name, () => {
     const server = builder.build();
     expect((server as any).options.logger).toBe(logger);
   });
+
+  it(`Should enable monitoring`, () => {
+    const server = NatsServerBuilder.create().enableMonitoring().build();
+    expect((server as any).options.monitoring).toBe(true);
+  });
+
+  it(`Should disable monitoring`, () => {
+    const server = NatsServerBuilder.create().disableMonitoring().build();
+    expect((server as any).options.monitoring).toBe(false);
+  });
+
+  it(`Should set an explicit monitoring port`, () => {
+    const server = NatsServerBuilder.create().setMonitoringPort(8222).build();
+    expect((server as any).options.monitoring).toBe(8222);
+  });
+
+  it(`Should apply last-call-wins across monitoring setters`, () => {
+    const a = NatsServerBuilder.create()
+      .enableMonitoring()
+      .setMonitoringPort(8222)
+      .build();
+    expect((a as any).options.monitoring).toBe(8222);
+
+    const b = NatsServerBuilder.create()
+      .setMonitoringPort(8222)
+      .disableMonitoring()
+      .build();
+    expect((b as any).options.monitoring).toBe(false);
+  });
+
+  it(`Should set the start timeout`, () => {
+    const server = NatsServerBuilder.create().setStartTimeout(5000).build();
+    expect((server as any).options.startTimeoutMs).toBe(5000);
+  });
 });

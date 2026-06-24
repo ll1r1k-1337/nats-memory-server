@@ -1,8 +1,13 @@
 import child_process from 'child_process';
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
+import http from 'http';
 import { PassThrough, Readable } from 'stream';
-import { DEFAULT_NATS_SERVER_OPTIONS, NatsServer } from './nats-server';
+import {
+  DEFAULT_NATS_SERVER_OPTIONS,
+  NatsServer,
+  buildHealthzUrl,
+} from './nats-server';
 import { NatsServerBuilder } from './nats-server.builder';
 import { getFreePort } from './utils';
 import { connect, StringCodec } from 'nats';
@@ -44,6 +49,36 @@ function makeFloodingChild(): ChildProcessWithoutNullStreams {
   stdout.push(null);
   stdout.once(`end`, () => {
     stderr.write(`[INF] Server is ready\n`);
+  });
+
+  return child;
+}
+
+/**
+ * A fake child that spawns successfully and stays alive but NEVER writes a
+ * readiness line. Used to exercise the start timeout and the healthz path,
+ * where readiness must come from somewhere other than stderr.
+ */
+function makeSilentChild(): ChildProcessWithoutNullStreams {
+  const child = new EventEmitter() as unknown as ChildProcessWithoutNullStreams;
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+
+  Object.assign(child, {
+    stdout,
+    stderr,
+    exitCode: null,
+    signalCode: null,
+    unref: () => {
+      // no-op
+    },
+    kill: () => {
+      Object.assign(child, { exitCode: 0 });
+      stdout.end();
+      stderr.end();
+      queueMicrotask(() => child.emit(`close`, 0, null));
+      return true;
+    },
   });
 
   return child;
@@ -258,6 +293,169 @@ describe(NatsServer.name, () => {
     }
   });
 
+  it(`Should reject start() if the server never becomes ready within the timeout`, async () => {
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setStartTimeout(150)
+        .build();
+
+      await expect(server.start()).rejects.toThrow(/did not become ready/);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+
+  it(`Should return undefined from getMonitoringUrl when monitoring is disabled`, () => {
+    const server = NatsServerBuilder.create().build();
+    expect(server.getMonitoringUrl()).toBeUndefined();
+  });
+
+  it(`Should become ready via /healthz and expose getMonitoringUrl when monitoring is enabled`, async () => {
+    const monitorPort = await getFreePort();
+    const healthServer = http.createServer((req, res) => {
+      if (req.url === `/healthz`) {
+        res.writeHead(200);
+        res.end(`{"status":"ok"}`);
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((resolve) => {
+      healthServer.listen(monitorPort, `127.0.0.1`, resolve);
+    });
+
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setIp(`127.0.0.1`)
+        .setPort(45330)
+        .setMonitoringPort(monitorPort)
+        .build();
+
+      await withTimeout(server.start(), 5000, `monitoring start()`);
+
+      expect(server.getMonitoringUrl()).toBe(`http://127.0.0.1:${monitorPort}`);
+      expect(spawnSpy).toHaveBeenCalledWith(
+        `fake-nats-server`,
+        [`--addr`, `127.0.0.1`, `--port`, `45330`, `-m`, String(monitorPort)],
+        { stdio: `pipe` },
+      );
+
+      await server.stop();
+    } finally {
+      spawnSpy.mockRestore();
+      await new Promise<void>((resolve) => {
+        healthServer.close(() => {
+          resolve();
+        });
+      });
+    }
+  });
+
+  it(`Should return undefined from getMonitoringUrl after a failed start with monitoring enabled`, async () => {
+    const monitorPort = await getFreePort(); // nothing serves /healthz here
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setMonitoringPort(monitorPort)
+        .setStartTimeout(150)
+        .build();
+
+      await expect(server.start()).rejects.toThrow(/did not become ready/);
+      expect(server.getMonitoringUrl()).toBeUndefined();
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+
+  it(`Should include recent stderr in the timeout error`, async () => {
+    const child = makeSilentChild();
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => {
+        setImmediate(() => {
+          (child.stderr as unknown as PassThrough).write(
+            `[ERR] boom happened\n`,
+          );
+        });
+        return child;
+      });
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setStartTimeout(150)
+        .build();
+
+      await expect(server.start()).rejects.toThrow(/boom happened/);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+
+  it(`Should poll 127.0.0.1 for /healthz when bound to 0.0.0.0`, async () => {
+    const monitorPort = await getFreePort();
+    const healthServer = http.createServer((req, res) => {
+      if (req.url === `/healthz`) {
+        res.writeHead(200);
+        res.end(`{"status":"ok"}`);
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((resolve) => {
+      healthServer.listen(monitorPort, `127.0.0.1`, resolve);
+    });
+
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeSilentChild());
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setIp(`0.0.0.0`)
+        .setPort(45340)
+        .setMonitoringPort(monitorPort)
+        .build();
+
+      // The healthz server is bound to 127.0.0.1 only; start() resolving proves
+      // the poll targeted 127.0.0.1 rather than 0.0.0.0. The public URL mirrors
+      // getUrl()'s convention and reflects the configured bind host.
+      await withTimeout(server.start(), 5000, `0.0.0.0 monitoring start()`);
+      expect(server.getMonitoringUrl()).toBe(`http://0.0.0.0:${monitorPort}`);
+
+      await server.stop();
+    } finally {
+      spawnSpy.mockRestore();
+      await new Promise<void>((resolve) => {
+        healthServer.close(() => {
+          resolve();
+        });
+      });
+    }
+  });
+
   it(`spawns only once when start() is called concurrently`, async () => {
     const spawnSpy = jest
       .spyOn(child_process, `spawn`)
@@ -289,5 +487,91 @@ describe(NatsServer.name, () => {
     } finally {
       spawnSpy.mockRestore();
     }
+  });
+
+  it(`Should expose a working /healthz endpoint with the real server`, async () => {
+    const server = await NatsServerBuilder.create()
+      .setVerbose(false)
+      .enableMonitoring()
+      .build()
+      .start();
+
+    try {
+      const url = server.getMonitoringUrl();
+      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+
+      const status = await new Promise<number>((resolve, reject) => {
+        http
+          .get(`${url as string}/healthz`, (res) => {
+            res.resume();
+            resolve(res.statusCode ?? 0);
+          })
+          .on(`error`, reject);
+      });
+      expect(status).toBe(200);
+
+      const nc = await connect({ servers: server.getUrl() });
+      expect(nc.isClosed()).toBe(false);
+      await nc.close();
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it(`keeps a multibyte stderr char intact when split across chunks`, async () => {
+    const child = makeSilentChild();
+    const emojiBytes = Buffer.from(`😀`, `utf8`); // 4 UTF-8 bytes
+
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => {
+        setImmediate(() => {
+          const stderr = child.stderr as unknown as PassThrough;
+          stderr.write(Buffer.from(`[ERR] `, `utf8`));
+          // Split the 4-byte sequence across two separate `data` events.
+          stderr.write(emojiBytes.subarray(0, 2));
+          stderr.write(emojiBytes.subarray(2));
+        });
+        return child;
+      });
+
+    try {
+      const server = NatsServerBuilder.create()
+        .setVerbose(false)
+        .setBinPath(`fake-nats-server`)
+        .setStartTimeout(150)
+        .build();
+
+      // The captured tail must contain the intact emoji, not the U+FFFD
+      // replacement characters a per-chunk decode would produce.
+      await expect(server.start()).rejects.toThrow(/😀/);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+});
+
+describe(`buildHealthzUrl`, () => {
+  it(`uses the bind host for a normal IPv4 address`, () => {
+    expect(buildHealthzUrl(`127.0.0.1`, 8222)).toBe(
+      `http://127.0.0.1:8222/healthz`,
+    );
+  });
+
+  it(`probes loopback for the IPv4 wildcard`, () => {
+    expect(buildHealthzUrl(`0.0.0.0`, 8222)).toBe(
+      `http://127.0.0.1:8222/healthz`,
+    );
+  });
+
+  it(`probes ::1 and brackets the IPv6 wildcard`, () => {
+    expect(buildHealthzUrl(`::`, 8222)).toBe(`http://[::1]:8222/healthz`);
+  });
+
+  it(`brackets IPv6 literals`, () => {
+    expect(buildHealthzUrl(`::1`, 8222)).toBe(`http://[::1]:8222/healthz`);
+    expect(buildHealthzUrl(`fe80::1`, 9000)).toBe(
+      `http://[fe80::1]:9000/healthz`,
+    );
   });
 });

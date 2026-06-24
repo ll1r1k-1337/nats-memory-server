@@ -1,6 +1,8 @@
 import child_process from 'child_process';
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
+import http from 'http';
+import type { AddressInfo } from 'net';
 import { PassThrough } from 'stream';
 import { NatsServer, type Logger } from './nats-server';
 import { NatsServerBuilder } from './nats-server.builder';
@@ -51,6 +53,31 @@ function makeFakeChild(): ChildProcessWithoutNullStreams {
 
   setImmediate(() => {
     stderr.write(`[INF] Server is ready\n`);
+  });
+
+  return child;
+}
+
+function makeNeverReadyChild(): ChildProcessWithoutNullStreams {
+  const child = new EventEmitter() as unknown as ChildProcessWithoutNullStreams;
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+
+  Object.assign(child, {
+    stdout,
+    stderr,
+    exitCode: null,
+    signalCode: null,
+    unref: () => {
+      // no-op
+    },
+    kill: () => {
+      Object.assign(child, { exitCode: 0 });
+      stdout.end();
+      stderr.end();
+      queueMicrotask(() => child.emit(`close`, 0, null));
+      return true;
+    },
   });
 
   return child;
@@ -218,5 +245,49 @@ describe(`${NatsServer.name} project-config runtime options`, () => {
     );
 
     await server.stop();
+  });
+
+  it(`Should enable monitoring from the project config`, async () => {
+    const healthServer = http.createServer((_req, res) => {
+      res.writeHead(200);
+      res.end(`{"status":"ok"}`);
+    });
+    await new Promise<void>((resolve) => {
+      healthServer.listen(0, `127.0.0.1`, resolve);
+    });
+    const monitorPort = (healthServer.address() as AddressInfo).port;
+
+    getProjectConfigMock.mockResolvedValue(
+      makeProjectConfig({ verbose: false, monitoring: monitorPort }),
+    );
+
+    const server = NatsServerBuilder.create().setLogger(makeLogger()).build();
+
+    await server.start();
+
+    expect(spawnSpy).toHaveBeenCalledWith(
+      `config-bin`,
+      [`--addr`, `127.0.0.1`, `--port`, `23456`, `-m`, String(monitorPort)],
+      { stdio: `pipe` },
+    );
+    expect(server.getMonitoringUrl()).toBe(`http://127.0.0.1:${monitorPort}`);
+
+    await server.stop();
+    await new Promise<void>((resolve) => {
+      healthServer.close(() => {
+        resolve();
+      });
+    });
+  });
+
+  it(`Should fail fast using startTimeoutMs from the project config`, async () => {
+    spawnSpy.mockImplementation(() => makeNeverReadyChild());
+    getProjectConfigMock.mockResolvedValue(
+      makeProjectConfig({ verbose: false, startTimeoutMs: 120 }),
+    );
+
+    const server = NatsServerBuilder.create().setLogger(makeLogger()).build();
+
+    await expect(server.start()).rejects.toThrow(/did not become ready/);
   });
 });
