@@ -452,6 +452,39 @@ describe(NatsServer.name, () => {
     }
   });
 
+  it(`spawns only once when start() is called concurrently`, async () => {
+    const spawnSpy = jest
+      .spyOn(child_process, `spawn`)
+      .mockImplementation(() => makeFloodingChild());
+
+    try {
+      const server = new NatsServer({
+        ...DEFAULT_NATS_SERVER_OPTIONS,
+        verbose: false,
+        port: 4222,
+        binPath: `fake-nats-server`,
+      });
+
+      // Both calls race before this.process is assigned; the in-flight guard
+      // must collapse them into a single spawn and resolve both to the same
+      // instance — otherwise the second spawn orphans a child whose handle
+      // stop() can never reach.
+      const [a, b] = await withTimeout(
+        Promise.all([server.start(), server.start()]),
+        3000,
+        `concurrent start()`,
+      );
+
+      expect(spawnSpy).toHaveBeenCalledTimes(1);
+      expect(a).toBe(server);
+      expect(b).toBe(server);
+
+      await server.stop();
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+
   it(`Should expose a working /healthz endpoint with the real server`, async () => {
     const server = await NatsServerBuilder.create()
       .setVerbose(false)
