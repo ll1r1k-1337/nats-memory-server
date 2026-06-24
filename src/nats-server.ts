@@ -71,9 +71,52 @@ export class NatsServer {
    * observe the same `verbose`/`logger`. */
   private resolvedOptions?: NatsServerOptions;
 
+  /** The in-flight start() promise. Established synchronously at the top of
+   * start() so concurrent/re-entrant calls share one spawn instead of racing
+   * past the `this.process == null` guard — this.process is not assigned until
+   * _start() spawns, after its awaits. */
+  private startPromise?: Promise<this>;
+
   constructor(private readonly options: Partial<NatsServerOptions> = {}) {}
 
   async start(): Promise<this> {
+    // Already running: a previous start() resolved and set this.process. Read
+    // verbose/logger from the options that start actually ran with.
+    if (this.process != null) {
+      const { verbose, logger } = this.resolvedOptions ?? {
+        ...DEFAULT_NATS_SERVER_OPTIONS,
+        ...this.options,
+      };
+      const message = `Nats server already started at ${this.getUrl()}`;
+
+      if (verbose) {
+        logger.warn(message);
+      }
+
+      return this;
+    }
+
+    // A start() is already in flight (e.g. Promise.all([s.start(), s.start()])
+    // or a re-entrant call before the first resolved). Share that promise: the
+    // guard above can't catch a concurrent caller because this.process is not
+    // assigned until spawnServer() spawns — after its awaits — so without this
+    // a second caller would spawn a second, orphaned child.
+    if (this.startPromise != null) {
+      return await this.startPromise;
+    }
+
+    const startPromise = this._start();
+    this.startPromise = startPromise;
+
+    try {
+      return await startPromise;
+    } finally {
+      // Clear so a later start() (after stop() or a crash) can spawn afresh.
+      this.startPromise = undefined;
+    }
+  }
+
+  private async _start(): Promise<this> {
     // getProjectConfig memoizes per project path (and no longer caches a
     // rejection), so calling it directly each start() is both cheap and
     // recoverable — no separate static promise cache is needed here.
@@ -91,30 +134,20 @@ export class NatsServer {
     this.resolvedOptions = config;
 
     const { verbose, logger } = config;
-
-    if (this.process != null) {
-      const message = `Nats server already started at ${this.getUrl()}`;
-
-      if (verbose) {
-        logger.warn(message);
-      }
-
-      return this;
-    }
-
     const { args, ip, port = await getFreePort(), binPath } = config;
 
     if (binPath == null) {
       throw new Error(`Could not resolve a binPath for the NATS server binary`);
     }
 
-    return await new Promise((resolve, reject) => {
-      this.process = child_process.spawn(
+    return await new Promise<this>((resolve, reject) => {
+      const child = child_process.spawn(
         binPath,
         [`--addr`, ip, `--port`, port.toString(), ...args],
         { stdio: `pipe` },
       );
 
+      this.process = child;
       this.host = ip;
       this.port = port;
 
@@ -123,24 +156,28 @@ export class NatsServer {
       // wait for the readiness line on stderr. nats-server itself logs to
       // stderr, but we don't control what a custom binPath prints. We don't
       // need stdout's contents, so just let it flow and discard.
-      this.process.stdout.resume();
+      child.stdout.resume();
 
       let isReady = false;
 
-      this.process.once(`error`, (err) => {
+      child.once(`error`, (err) => {
         if (verbose) {
           logger.error(`NATS server error:`, err);
         }
 
         // Only fail the start Promise if we never became ready; a transient
         // error after readiness must not tear down a running server's handle.
+        // Clear the handle only if it still points at our child, so a failed
+        // spawn cannot wipe a handle a later start() already installed.
         if (!isReady) {
-          this.process = undefined;
+          if (this.process === child) {
+            this.process = undefined;
+          }
           reject(err);
         }
       });
 
-      this.process.stderr.on(`data`, (data: unknown) => {
+      child.stderr.on(`data`, (data: unknown) => {
         // Once ready, non-verbose mode has nothing left to do on this stream,
         // so skip the work entirely for high-volume logs.
         if (isReady && !verbose) {
@@ -174,16 +211,20 @@ export class NatsServer {
               logger.log(`NATS server is ready!`);
             }
             resolve(this);
-            this.process?.unref();
+            child.unref();
           }
         }
       });
 
-      this.process.once(`close`, (code) => {
+      child.once(`close`, (code) => {
         // The child has exited: clear the handle so a later stop() does not
         // kill() a dead process (which never re-emits `close`, hanging stop())
-        // and so start() can spawn a fresh server on a subsequent call.
-        this.process = undefined;
+        // and so start() can spawn a fresh server on a subsequent call. Guard
+        // on identity so a second, failed spawn's close can't clear the handle
+        // of a healthy server a later start() already installed.
+        if (this.process === child) {
+          this.process = undefined;
+        }
 
         if (verbose) {
           logger.log(`NATS server was stop!`);
